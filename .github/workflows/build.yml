@@ -1,0 +1,30 @@
+name: build
+
+on: workflow_dispatch
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        # os: [windows-latest, macos-latest, ubuntu-latest]
+        os: [macos-latest]        
+        arch: [x64, arm64]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Set up Homebrew
+        if: matrix.os == 'macos-latest'
+        id: set-up-homebrew
+        uses: Homebrew/actions/setup-homebrew@master
+      - run: brew install openssl
+      - run: brew install readline
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: ./configure -C --disable-windows --disable-x3270
+      - run: make
+    #   - name: Upload builded artifact
+    #     uses: actions/upload-artifact@v3
+    #     with:
+    #       name: b3270
+    #       path: obj/b3270/*    
