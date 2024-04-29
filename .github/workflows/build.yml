@@ -1,0 +1,75 @@
+name: build
+
+on: workflow_dispatch
+
+jobs:
+  build-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-13, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Set up Homebrew
+        if: matrix.os == 'macos-13' || matrix.os == 'macos-14'
+        id: set-up-homebrew
+        uses: Homebrew/actions/setup-homebrew@master
+      - run: brew install openssl
+      - run: brew install readline
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: ./configure -C --disable-windows --disable-x3270 --disable-x3270 --disable-c3270 --disable-s3270 --disable-tcl3270 --disable-pr3287 --disable-ws3270 --disable-wc3270 --disable-wpr3287      
+      - run: make
+      - name: Set env
+        run: echo "PRATFORM_STRING=`./config.guess`" >> $GITHUB_ENV
+      - run: xattr -dr com.apple.quarantine obj/${{ env.PRATFORM_STRING }}/b3270/b3270
+      - run: chmod +x obj/${{ env.PRATFORM_STRING }}/b3270/b3270
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: b3270-${{ env.PRATFORM_STRING }}
+          path: obj/${{ env.PRATFORM_STRING }}/b3270/b3270
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - run: sudo apt-get install -y gcc libssl-dev libexpat-dev
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: ./configure -C --disable-windows --disable-x3270 --disable-x3270 --disable-c3270 --disable-s3270 --disable-tcl3270 --disable-pr3287 --disable-ws3270 --disable-wc3270 --disable-wpr3287      
+      - run: make
+      - name: Set env
+        run: echo "PRATFORM_STRING=`./config.guess`" >> $GITHUB_ENV
+      - run: chmod +x obj/${{ env.PRATFORM_STRING }}/b3270/b3270
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: b3270-${{ env.PRATFORM_STRING }}
+          path: obj/${{ env.PRATFORM_STRING }}/b3270/b3270
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          install: >-
+            base-devel
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-openssl
+            git
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - shell: msys2 {0}
+        run: |
+          echo "PRATFORM_STRING=`./config.guess`" >> $GITHUB_ENV
+          export PATH=/mingw64/bin:$PATH
+          git submodule update --init
+          ./configure -C --disable-x3270 --disable-x3270 --disable-c3270 --disable-s3270 --disable-tcl3270 --disable-pr3287 --disable-ws3270 --disable-wc3270 --disable-wpr3287
+          make
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: b3270-${{ env.PRATFORM_STRING }}
+          path: obj/win64/b3270/b3270.exe
