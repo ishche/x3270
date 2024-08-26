@@ -63,7 +63,6 @@ fi
 AC_SUBST(host)
 AC_SUBST(CCOPTIONS)
 AC_SUBST(CONNECT_GETPEERNAME)
-AC_SUBST(BUILDCC)
 
 dnl Checks for header files.
 AC_CHECK_HEADERS(sys/select.h)

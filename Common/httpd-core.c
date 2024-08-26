@@ -38,11 +38,14 @@
 #include "appres.h"
 #include "asprintf.h"
 #include "json.h"
-#include "lazya.h"
+#include "percent_decode.h"
 #include "task.h"
+#include "s3270_proto.h"
+#include "txa.h"
 #include "trace.h"
 #include "utils.h"
 #include "varbuf.h"
+#include "w3misc.h"
 
 #include "httpd-core.h"
 #include "httpd-io.h"
@@ -64,6 +67,13 @@ typedef enum {		/* Error type: */
     ERRMODE_NONFATAL	/*  The request cannot be satisfied, but if this is a
 			     persistent connection, keep it open. */
 } errmode_t;
+
+typedef enum {		/* Cookie check resul: */
+    CX_NONE,		/*  No cookie defined */
+    CX_CORRECT,		/*  Cookie defined, supplied correctly */
+    CX_MISSING,		/*  Cookie defined, not supplied */
+    CX_INCORRECT	/*  Cookie defined, supplied incorrectly */
+} cookie_check_t;
 
 /* fields */
 typedef struct _field {	/* HTTP request fields (name: value) */
@@ -97,6 +107,7 @@ typedef struct {
     int content_length;	/* content length */
     int content_length_left; /* remaining content to be read */
     char *content;	/* content */
+    ioid_t cookie_timeout_id; /* bad cookie timeout identifier */
 } request_t;
 
 /* connection state */
@@ -172,6 +183,8 @@ status_text(int status_code)
 	return "Moved Permanently";
     case 400:
 	return "Bad Request";
+    case 403:
+	return "Forbidden";
     case 404:
 	return "Not Found";
     case 409:
@@ -292,7 +305,7 @@ httpd_vprint(httpd_t *h, httpd_print_t type, const char *format, va_list ap)
     char *sp;			/* pointer through the string */
 
     /* Expand the text. */
-    buf = xs_vbuffer(format, ap);
+    buf = Vasprintf(format, ap);
     sl = strlen(buf);
 
     /* Write it in chunks, doing CR/LF expansion. */
@@ -368,7 +381,7 @@ httpd_content_len(httpd_t *h, size_t len)
     char *cl;
 
     /* Do our own CR+LF expansion and send directly. */
-    cl = lazyaf("Content-Length: %u\r\n\r\n", (unsigned)len);
+    cl = txAsprintf("Content-Length: %u\r\n\r\n", (unsigned)len);
     httpd_send(h, cl, strlen(cl));
 }
 
@@ -622,7 +635,7 @@ httpd_verror(httpd_t *h, errmode_t mode, content_t content_type,
 	    break;
 	case CT_JSON:
 	    {
-		char *buf = xs_vbuffer(format, ap);
+		char *buf = Vasprintf(format, ap);
 		size_t sl = strlen(buf);
 		char *w = NULL;
 
@@ -633,13 +646,16 @@ httpd_verror(httpd_t *h, errmode_t mode, content_t content_type,
 		    httpd_print(h, HP_BUFFER, "%s\n",
 			    (w = json_write_o(jresult, JW_ONE_LINE)));
 		} else {
-		    json_t *j, *k;
+		    json_t *j, *result_array, *err_array;
 
-		    k = json_array();
-		    json_array_set(k, 0, json_string(buf, sl));
+		    result_array = json_array();
+		    json_array_set(result_array, 0, json_string(buf, sl));
+		    err_array = json_array();
+		    json_array_set(err_array, 0, json_boolean(true));
 		    j = json_object();
-		    json_object_set(j, "result", NT, k);
-		    json_object_set(j, "status", NT,
+		    json_object_set(j, JRET_RESULT, NT, result_array);
+		    json_object_set(j, JRET_RESULT_ERR, NT, err_array);
+		    json_object_set(j, JRET_STATUS, NT,
 			    json_string(task_status_string(), NT));
 		    httpd_print(h, HP_BUFFER, "%s\n",
 			    (w = json_write_o(j, JW_ONE_LINE)));
@@ -842,105 +858,6 @@ httpd_digest_request_line(httpd_t *h)
     }
 
     return HS_CONTINUE;
-}
-
-/**
- * Translate a hex digit to a number.
- *
- * @param[in] c		Digit character
- *
- * @return Value, or -1 if not a valid digit
- */
-static int
-hex_digit(char c)
-{
-    static const char *xlc = "0123456789abcdef";
-    static const char *xuc = "0123456789ABCDEF";
-    char *x;
-
-    x = strchr(xlc, c);
-    if (x != NULL) {
-	return (int)(x - xlc);
-    }
-    x = strchr(xuc, c);
-    if (x != NULL) {
-	return (int)(x - xuc);
-    }
-    return -1;
-}
-
-/**
- * Do percent substitution decoding on a URI element.
- *
- * @param[in] uri	URI to parse
- * @param[in] len	Length of URI
- * @param[in] plus	Translate '+' to ' ' as well
- *
- * @return Translated, newly-allocated and NULL-terminated URI, or NULL if
- *  there is a syntax error
- */
-static char *
-percent_decode(const char *uri, size_t len, bool plus)
-{
-    enum {
-	PS_BASE,	/* base state */
-	PS_PCT,		/* saw % */
-	PS_HEX1		/* saw % and one hex digit */
-    } state = PS_BASE;
-    int hex1 = 0, hex2;
-    const char *s;
-    char c;
-    varbuf_t r;
-    char xc;
-
-    vb_init(&r);
-
-    /* Walk and translate. */
-    s = uri;
-    while (s < uri + len) {
-	c = *s++;
-
-	switch (state) {
-	case PS_BASE:
-	    if (c == '%') {
-		state = PS_PCT;
-	    } else {
-		if (plus && c == '+') {
-		    vb_appends(&r, " ");
-		} else {
-		    vb_append(&r, &c, 1);
-		}
-	    }
-	    break;
-	case PS_PCT:
-	    hex1 = hex_digit(c);
-	    if (hex1 < 0) {
-		vb_free(&r);
-		return NULL;
-	    }
-	    state = PS_HEX1;
-	    break;
-	case PS_HEX1:
-	    hex2 = hex_digit(c);
-	    if (hex2 < 0) {
-		vb_free(&r);
-		return NULL;
-	    }
-	    xc = (hex1 << 4) | hex2;
-	    vb_append(&r, &xc, 1);
-	    state = PS_BASE;
-	    break;
-	}
-    }
-
-    /* If we end with a partially-digested sequence, fail. */
-    if (state != PS_BASE) {
-	vb_free(&r);
-	return NULL;
-    }
-
-    /* Done. */
-    return vb_consume(&r);
 }
 
 /**
@@ -1262,7 +1179,7 @@ httpd_redirect(httpd_t *h, const char *uri)
 	return httpd_error(h, ERRMODE_NONFATAL, CT_HTML, 404, "Document not found.");
     }
 
-    r->location = xs_buffer("http://%s%s/", host, uri);
+    r->location = Asprintf("http://%s%s/", host, uri);
     httpd_error(h, ERRMODE_NONFATAL, CT_HTML, 301, "The document has moved "
 	    "<a href=\"http://%s%s/\">here.</a>.", host, uri);
     Free(r->location);
@@ -1578,6 +1495,93 @@ decode_content_type(const char *content_type)
 }
 
 /**
+ * Check for a securtty cookie match.
+ *
+ * @param[in] fields	Header fields
+ * @return cookie_check_t
+ */
+static cookie_check_t
+check_cookie(field_t *fields)
+{
+    const char *cookie_field;
+    char *cookies;
+    char *cookie;
+    char *ptr;
+    cookie_check_t rv;
+
+    if (security_cookie == NULL) {
+	return CX_NONE;
+    }
+    if ((cookie_field = lookup_field("Cookie", fields)) == NULL) {
+	return CX_MISSING;
+    }
+
+    /* Find the security cookie. */
+    cookies = NewString(cookie_field);
+    ptr = cookies;
+    rv = CX_MISSING;
+    while ((cookie = strtok(ptr, ";")) != NULL) {
+	char *s = cookie;
+	char *name_start;
+	char *value_start;
+
+	ptr = NULL;
+	while (*s && isspace((int)*s)) {
+	    s++;
+	}
+	if (!*s) {
+	    continue;
+	}
+	name_start = s;
+	while (*s && *s != '=') {
+	    s++;
+	}
+	if (s == name_start || !*s) {
+	    continue;
+	}
+	if (strncmp(SECURITY_COOKIE, name_start, s - name_start)) {
+	    continue;
+	}
+
+	/* Found the right cookie. */
+	value_start = ++s;
+	while (*s && !isspace((int)*s)) {
+	    s++;
+	}
+	if (((size_t)(s - value_start) == strlen(security_cookie)) &&
+	    !strncmp(security_cookie, value_start, strlen(security_cookie))) {
+	    rv = CX_CORRECT;
+	} else {
+	    rv = CX_INCORRECT;
+	}
+	break;
+    }
+
+    Free(cookies);
+    return rv;
+}
+
+/**
+ * Check for a match for a waiting cookie error.
+ * @param[in] dhandle	Daemon handle
+ * @param[in] id	I/O ID
+ *
+ *@returns true if there is a match
+ */
+bool
+httpd_waiting(void *dhandle, ioid_t id)
+{
+    httpd_t *h = dhandle;
+    request_t *r = &h->request;
+
+    if (r->cookie_timeout_id == id) {
+	(void) httpd_error(h, ERRMODE_FATAL, CT_HTML, 403, "Invalid x3270-security cookie.");
+	return true;
+    }
+    return false;
+}
+
+/**
  * Digest the fields.
  *
  * The entire text is in r->request_buf, NULL terminated, including newline
@@ -1707,6 +1711,18 @@ httpd_digest_fields(httpd_t *h)
     if ((content_length = lookup_field("Content-Length", r->fields)) != NULL) {
 	r->content_length_left = r->content_length = atoi(content_length);
 	r->content = &r->request_buf[r->nr];
+    }
+
+    /* Check the security cookie. */
+    switch (check_cookie(r->fields)) {
+    case CX_NONE:
+    case CX_CORRECT:
+	break;
+    case CX_MISSING:
+	return httpd_error(h, ERRMODE_FATAL, CT_HTML, 403, "Missing x3270-security cookie.");
+    case CX_INCORRECT:
+	r->cookie_timeout_id = AddTimeOut(1000 + (rand() % 1000), hio_error_timeout);
+	return HS_PENDING;
     }
 
     return HS_CONTINUE;

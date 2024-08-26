@@ -64,7 +64,6 @@
 #include "host.h"
 #include "idle.h"
 #include "kybd.h"
-#include "lazya.h"
 #include "menubar.h"
 #include "names.h"
 #include "nvt.h"
@@ -83,6 +82,7 @@
 #include "telnet.h"
 #include "toupper.h"
 #include "trace.h"
+#include "txa.h"
 #include "utf8.h"
 #include "utils.h"
 #include "varbuf.h"
@@ -99,8 +99,13 @@
 /* IA test for UTF-8 overrides. */
 #define IA_UTF8(ia)	((ia) == IA_HTTPD)
 
+/* Base and variable wait times for a wrong cookie, in ms. */
+#define WRONG_COOKIE_BASE	1000
+#define WRONG_COOKIE_VAR	1000
+
 /* Globals */
 struct macro_def *macro_defs = NULL;
+char *security_cookie;
 
 /* Statics */
 
@@ -301,6 +306,7 @@ static action_t ReadBuffer_action;
 static action_t Snap_action;
 static action_t Wait_action;
 static action_t Capabilities_action;
+static action_t Cookie_action;
 static action_t ResumeInput_action;
 static action_t RequestInput_action;
 
@@ -320,7 +326,7 @@ static const char *
 stsname(task_t *s)
 {
     if (s->type == ST_CB) {
-	return lazyaf("CB(%s)", s->cbx.cb->shortname);
+	return txAsprintf("CB(%s)", s->cbx.cb->shortname);
     } else {
 	return st_name[(int)s->type];
     }
@@ -340,7 +346,7 @@ trace_task_output(task_t *s, const char *fmt, ...)
     }
 
     va_start(args, fmt);
-    msgbuf = xs_vbuffer(fmt, args);
+    msgbuf = Vasprintf(fmt, args);
     va_end(args);
 
     m = msgbuf;
@@ -379,7 +385,7 @@ macros_init(void)
 	}
 	s = get_fresource("%s.%s", ResMacros, rname);
 	if (s != NULL) {
-	    macros_resource = lazyaf("%s.%s", ResMacros, rname);
+	    macros_resource = txAsprintf("%s.%s", ResMacros, rname);
 	}
 	Free(rname);
     }
@@ -553,6 +559,7 @@ task_register(void)
 	{ AnBell,		Bell_action, 0 },
 	{ AnCapabilities,	Capabilities_action, ACTION_HIDDEN },
 	{ AnCloseScript,	CloseScript_action, 0 },
+	{ AnCookie,		Cookie_action, 0 },
 	{ AnEbcdic,		Ebcdic_action, 0 },
 	{ AnEbcdic1,		Ebcdic1_action, 0 },
 	{ AnEbcdicField,	EbcdicField_action, 0 },
@@ -636,7 +643,7 @@ static void
 task_set_match(task_t *s, int baddr, const char *string, bool force_utf8)
 {
     vtrace(TASK_NAME_FMT " wait @%d%s\n", TASK_sNAME(s),
-	    baddr, (string != NULL)? lazyaf(" '%s'", string): "");
+	    baddr, (string != NULL)? txAsprintf(" '%s'", string): "");
     s->match.baddr = baddr;
     s->match.string = NewString(string);
     s->match.force_utf8 = force_utf8;
@@ -837,6 +844,7 @@ task_pop(void)
 void
 peer_script_init(void)
 {
+    /* TODO: When this function returns early, it should check for the cookie resource expecting stdin/stdout. */
     if (appres.script_port) {
 	struct sockaddr *sa;
 	socklen_t sa_len;
@@ -902,7 +910,7 @@ peer_script_init(void)
 static void
 cleanup_socket(bool b _is_unused)
 {
-    unlink(lazyaf("/tmp/x3sck.%u", getpid()));
+    unlink(txAsprintf("/tmp/x3sck.%u", getpid()));
 }
 #endif /*]*/
 
@@ -932,7 +940,7 @@ lookup_action(const char *action, char **errorp)
 	FOREACH_LLIST(&actions_list, e, action_elt_t *) {
 	    if (!strncasecmp(action, e->t.name, strlen(action))) {
 		if (any != NULL) {
-		    *errorp = xs_buffer("Ambiguous action name: %s", action);
+		    *errorp = Asprintf("Ambiguous action name: %s", action);
 		    return NULL;
 		}
 		any = e;
@@ -941,7 +949,7 @@ lookup_action(const char *action, char **errorp)
     }
 
     if (any == NULL) {
-	*errorp = xs_buffer("Unknown action: %s", action);
+	*errorp = Asprintf("Unknown action: %s", action);
     }
 
     return any;
@@ -1265,7 +1273,7 @@ success:
     return true;
 
 failure:
-    *errorp = xs_buffer("%s at column %d", fail_text[failreason-1],
+    *errorp = Asprintf("%s at column %d", fail_text[failreason-1],
 	    (int)(s - s_orig) + offset);
 silent_failure:
     if (vbcount) {
@@ -1287,12 +1295,13 @@ silent_failure:
  * @param[in] args	Arguments
  * @param[out] last	Returned action and paramters, canonicalized
  * @param[in] last_len	Length of the last
+ * @param[in] cbx	Context
  *
  * @return success or failure
  */
 static bool
 execute_command_backend(enum iaction cause, action_elt_t *entry,
-	const char **args, char *last, size_t last_len)
+	const char **args, char *last, size_t last_len, struct task_cbx *cbx)
 {
     bool stat = true;
     int i;
@@ -1303,6 +1312,16 @@ execute_command_backend(enum iaction cause, action_elt_t *entry,
     if (entry->t.ia_restrict != IA_NONE && cause != entry->t.ia_restrict) {
 	popup_an_error("Action %s is invalid in this context",
 		entry->t.name);
+	return false;
+    }
+
+    /* Check for cookies. */
+    if (security_cookie != NULL &&
+	    cbx != NULL &&
+	    (cbx->cb->flags & CB_NEEDCOOKIE) &&
+	    cbx->cb->getxflags != NULL && !((cbx->cb->getxflags)(cbx->handle) & XF_HAVECOOKIE) &&
+	    strcasecmp(entry->t.name, AnCookie)) {
+	popup_an_error("Security cookie not supplied");
 	return false;
     }
 
@@ -1343,12 +1362,13 @@ execute_command_backend(enum iaction cause, action_elt_t *entry,
  * @param[in] cmd	Action and arguments
  * @param[out] last	Returned action and paramters, canonicalized
  * @param[in] last_len	Length of the last
+ * @param[in] cbx	Context
  *
  * @return success or failure
  */
 static bool
 execute_command_split(enum iaction cause, cmd_t *cmd, char *last,
-	size_t last_len)
+	size_t last_len, struct task_cbx *cbx)
 {
     action_elt_t *entry;
     char *error;
@@ -1359,7 +1379,7 @@ execute_command_split(enum iaction cause, cmd_t *cmd, char *last,
 	Free(error);
 	return false;
     }
-    return execute_command_backend(cause, entry, cmd->args, last, last_len);
+    return execute_command_backend(cause, entry, cmd->args, last, last_len, cbx);
 }
 
 /**
@@ -1370,12 +1390,13 @@ execute_command_split(enum iaction cause, cmd_t *cmd, char *last,
  * @param[out] np	Returned pointer to next action
  * @param[out] last	Returned action and paramters, canonicalized
  * @param[in] last_len	Length of the last
+ * @param[in] cbx	Context
  *
  * @return success or failure
  */
 static bool
 execute_command(enum iaction cause, const char *s, const char **np, char *last,
-	size_t last_len)
+	size_t last_len, struct task_cbx *cbx)
 {
     bool stat;
     action_elt_t *entry;
@@ -1398,7 +1419,7 @@ execute_command(enum iaction cause, const char *s, const char **np, char *last,
 
     /* Run it. */
     stat = execute_command_backend(cause, entry, (const char **)args, last,
-	    last_len);
+	    last_len, cbx);
 
     /* Free the arguments. */
     for (i = 0; args[i] != NULL; i++) {
@@ -1490,6 +1511,7 @@ run_macro(void)
 	enum iaction ia;
 	bool was_ckbwait = CKBWAIT;
 	unsigned int old_kybdlock = kybdlock;
+	struct task_cbx *cbx = NULL;
 
 	/*
 	 * Check for command failure.
@@ -1513,16 +1535,17 @@ run_macro(void)
 		s->next != NULL &&
 		s->next->type == ST_CB) {
 	    ia = s->next->cbx.cb->ia;
+	    cbx = &s->next->cbx;
 	} else {
 	    ia = IA_MACRO;
 	}
 
 	if (s->macro.cmd_next != NULL) {
 	    es = execute_command_split(ia, *s->macro.cmd_next, s->macro.last,
-		    LAST_BUF);
+		    LAST_BUF, cbx);
 	    s->macro.cmd_next++;
 	} else {
-	    es = execute_command(ia, a, &nextm, s->macro.last, LAST_BUF);
+	    es = execute_command(ia, a, &nextm, s->macro.last, LAST_BUF, cbx);
 	    s->macro.dptr = nextm;
 	}
 
@@ -1685,7 +1708,7 @@ push_cb_backend(const char *buf, size_t len, cmd_t **cmds, const tcb_t *cb,
 	q->deleted = false;
 	q->output_wait_needed = find_owait(cb);
 	LLIST_APPEND(&q->llist, taskq);
-	name = q->unique_name = xs_buffer("CB(%s)[#%u]", q->name, q->index);
+	name = q->unique_name = Asprintf("CB(%s)[#%u]", q->name, q->index);
 	vtrace("%s started%s\n", name, q->output_wait_needed? " (owait)": "");
     } else {
 	q = current_task->taskq;
@@ -1696,7 +1719,7 @@ push_cb_backend(const char *buf, size_t len, cmd_t **cmds, const tcb_t *cb,
     s->cbx.cb = cb;
     s->cbx.handle = handle;
     if (name == NULL) {
-	name = lazyaf(TASK_NAME_FMT, TASK_sNAME(s));
+	name = txAsprintf(TASK_NAME_FMT, TASK_sNAME(s));
     }
 
     /* Push the command as a macro on top of the callback. */
@@ -1859,7 +1882,7 @@ task_info(const char *fmt, ...)
     task_t *s;
 
     va_start(args, fmt);
-    msgbuf = xs_vbuffer(fmt, args);
+    msgbuf = Vasprintf(fmt, args);
     va_end(args);
 
     msg = msgbuf;
@@ -1939,7 +1962,7 @@ connect_error(const char *fmt, ...)
 
     /* Expand the message. */
     va_start(ap, fmt);
-    msg = xs_vbuffer(fmt, ap);
+    msg = Vasprintf(fmt, ap);
     va_end(ap);
 
     if (!host_retry_mode && current_task == NULL) {
@@ -1996,7 +2019,7 @@ connect_errno(int e, const char *fmt, ...)
 
     /* Expand the message. */
     va_start(ap, fmt);
-    msg = xs_vbuffer(fmt, ap);
+    msg = Vasprintf(fmt, ap);
     va_end(ap);
     connect_error("%s: %s", msg, strerror(e));
     Free(msg);
@@ -3043,7 +3066,7 @@ status_string(void)
     }
 
     if (cstate > RECONNECTING) {
-	connect_stat = xs_buffer("C(%s)", current_host);
+	connect_stat = Asprintf("C(%s)", current_host);
     } else {
 	connect_stat = NewString("N");
     }
@@ -3058,7 +3081,7 @@ status_string(void)
 	em_mode = 'N';
     }
 
-    r = xs_buffer("%c %c %c %s %c %d %d %d %d %d 0x%lx",
+    r = Asprintf("%c %c %c %s %c %d %d %d %d %d 0x%lx",
 	    kb_stat,
 	    fmt_stat,
 	    prot_stat,
@@ -3077,7 +3100,7 @@ status_string(void)
 char *
 task_status_string(void)
 {
-    return lazyaf("%s 0.000", lazya(status_string()));
+    return txAsprintf("%s 0.000", txdFree(status_string()));
 }
 
 /* Call a run callback. */
@@ -3144,11 +3167,19 @@ task_cb_prompt(task_cbh handle)
     }
 
     st = status_string();
-    t = lazyaf("%s %ld.%03ld", st,
+    t = txAsprintf("%s %ld.%03ld", st,
 	    s->child_msec / 1000L,
 	    s->child_msec % 1000L);
     Free(st);
     return t;
+}
+
+const char *
+task_cb_name(task_cbh handle)
+{
+    task_t *s = task_find_cb(handle);
+
+    return (s != NULL)? txAsprintf(TASK_NAME_FMT, TASK_sNAME(s)): "???";
 }
 
 /**
@@ -3494,7 +3525,7 @@ Wait_action(ia_t ia _is_unused, unsigned argc, const char **argv)
     if (np > 0) {
 	for (i = 0; keywords[i].keyword != NULL; i++) {
 	    if (!strcasecmp(pr[0], keywords[i].keyword)) {
-		if (check_argc(lazyaf(AnWait "(%s)", keywords[i].keyword),
+		if (check_argc(txAsprintf(AnWait "(%s)", keywords[i].keyword),
 			    np - 1, keywords[i].min_args,
 			    keywords[i].max_args) < 0) {
 		    return false;
@@ -4397,6 +4428,7 @@ Capabilities_action(ia_t ia, unsigned argc, const char **argv)
     } fname[] = {
 	{ CBF_INTERACTIVE, KwInteractive },
 	{ CBF_PWINPUT, KwPwInput },
+	{ CBF_ERRD, KwErrd },
 	{ 0, NULL }
     };
 
@@ -4439,6 +4471,79 @@ Capabilities_action(ia_t ia, unsigned argc, const char **argv)
     if (flags) {
 	(*redirect->cbx.cb->setflags)(redirect->cbx.handle, flags);
     }
+
+    return true;
+}
+
+/* Timeout for displaying the error message for a wrong cookie. */
+static void
+wrong_cookie_timeout(ioid_t id)
+{
+    taskq_t *q;
+    task_t *s;
+    bool found = false;
+
+    assert(current_task == NULL);
+
+    FOREACH_LLIST(&taskq, q, taskq_t *) {
+	for (s = q->top; s != NULL; s = s->next) {
+	    if (s->wait_id == id) {
+		found = true;
+		break;
+	    }
+	}
+	if (found) {
+	    break;
+	}
+    } FOREACH_LLIST_END(&taskq, q, taskq_t *);
+
+    if (!found) {
+	vtrace("cookie_timed_out: no match\n");
+	return;
+    }
+
+    /* Fail it. */
+    task_result(s->next, AnCookie "(): Incorrect cookie", false);
+    s->success = false;
+    task_set_state(s, TS_RUNNING, AnCookie "() completed");
+    s->wait_id = NULL_IOID;
+}
+
+/* Cookie  action, provides the security cookie. */
+static bool
+Cookie_action(ia_t ia, unsigned argc, const char **argv)
+{
+    task_t *redirect;
+
+    action_debug(AnCookie, ia, argc, argv);
+    if (check_argc(AnCookie, argc, 1, 1) < 0) {
+	return false;
+    }
+
+    if (security_cookie == NULL) {
+	/* Trying to set the cookie when none is needed is a no-op. */
+	return true;
+    }
+
+    redirect = task_redirect_to();
+    if (redirect == NULL || !(redirect->cbx.cb->flags & CB_NEEDCOOKIE) || redirect->cbx.cb->setxflags == NULL) {
+	/* Trying to set the cookie when none is needed is a no-op. */
+	return true;
+    }
+
+    if (strcmp(argv[0], security_cookie)) {
+	unsigned long wait_ms = WRONG_COOKIE_BASE + (random() % WRONG_COOKIE_VAR);
+
+	/* popup_an_error(AnCookie "(): Incorrect cookie"); */
+	task_set_state(current_task, TS_TIME_WAIT, AnCookie "()");
+	current_task->wait_id = AddTimeOut(wait_ms, wrong_cookie_timeout);
+	(*redirect->cbx.cb->setxflags)(redirect->cbx.handle,
+		(*redirect->cbx.cb->getxflags)(redirect->cbx.handle) & ~XF_HAVECOOKIE);
+	return true;
+    }
+
+    /* Set the have-the-cookie flag. */
+    (*redirect->cbx.cb->setxflags)(redirect->cbx.handle, XF_HAVECOOKIE);
 
     return true;
 }
@@ -4623,7 +4728,7 @@ task_request_input(const char *action, const char *prompt,
     (*redirect->cbx.cb->irv->setir)(redirect->cbx.handle, ir);
 
     /* Tell them we want input. */
-    encoded = lazya(base64_encode(prompt));
+    encoded = txdFree(base64_encode(prompt));
     (*redirect->cbx.cb->reqinput)(redirect->cbx.handle, encoded,
 	    strlen(encoded), !no_echo);
     return true;
@@ -4902,7 +5007,7 @@ task_set_passthru(task_cbh **ret_cbh)
 
 	task_set_state(current_task, TS_PASSTHRU, "passthru processing");
 	current_task->passthru_index = ++passthru_index;
-	return lazyaf("emu-%d", passthru_index);
+	return txAsprintf("emu-%d", passthru_index);
     } else {
 	return NULL;
     }
@@ -4945,7 +5050,7 @@ task_resume_xwait(void *context, bool cancel, const char *why)
 	for (s = q->top; s != NULL; s = s->next) {
 	    if (s->state == TS_XWAIT && s->wait_context == context) {
 		task_set_state(s, TS_RUNNING,
-			lazyaf("extended wait done%s: %s",
+			txAsprintf("extended wait done%s: %s",
 			    cancel? " - cancel": "", why));
 		s->wait_context = NULL;
 		(*s->xcontinue_fn)(context, cancel);
@@ -4968,7 +5073,7 @@ task_xwait(void *context, xcontinue_fn *continue_fn, const char *why)
     assert(current_task != NULL);
     current_task->wait_context = context;
     current_task->xcontinue_fn = continue_fn;
-    task_set_state(current_task, TS_XWAIT, lazyaf("extended wait: %s", why));
+    task_set_state(current_task, TS_XWAIT, txAsprintf("extended wait: %s", why));
 }
 
 /* Return the current KBWAIT status. */

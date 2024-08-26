@@ -40,7 +40,6 @@ class TestS3270Defer(cti.cti):
 
         pport, socket = cti.unused_port()
         with playback.playback(self, 's3270/Test/wrap_field.trc', pport) as p:
-            self.check_listen(pport)
             socket.close()
 
             # Start s3270.
@@ -82,7 +81,7 @@ class TestS3270Defer(cti.cti):
             #  A -defer query should show nothing, since nothing changed.
             r = requests.get(f'http://127.0.0.1:{sport}/3270/rest/json/Set(-defer,oversize)')
             self.assertTrue(r.ok)
-            self.assertEqual(None, r.json()['result'])
+            self.assertEqual([], r.json()['result'])
             #  Nothing should be reported by a -defer query.
             r = requests.get(f'http://127.0.0.1:{sport}/3270/rest/json/Set(-defer)')
             self.assertTrue(r.ok)
@@ -97,10 +96,10 @@ class TestS3270Defer(cti.cti):
             #  A -defer query should show nothing.
             r = requests.get(f'http://127.0.0.1:{sport}/3270/rest/json/Set(-defer,model)')
             self.assertTrue(r.ok)
-            self.assertEqual(None, r.json()['result'])
+            self.assertEqual([], r.json()['result'])
             r = requests.get(f'http://127.0.0.1:{sport}/3270/rest/json/Set(-defer)')
             self.assertTrue(r.ok)
-            self.assertEqual(None, r.json()['result'])
+            self.assertEqual([], r.json()['result'])
 
         # Wait for the processes to exit.
         requests.get(f'http://127.0.0.1:{sport}/3270/rest/json/Quit()')
@@ -111,7 +110,6 @@ class TestS3270Defer(cti.cti):
 
         pport, socket = cti.unused_port()
         with playback.playback(self, 's3270/Test/wrap_field.trc', pport) as p:
-            self.check_listen(pport)
             socket.close()
 
             # Start s3270.
@@ -175,10 +173,10 @@ class TestS3270Defer(cti.cti):
             #  A -defer query should show nothing.
             r = requests.get(f'http://127.0.0.1:{sport}/3270/rest/json/Set(-defer,model)')
             self.assertTrue(r.ok)
-            self.assertEqual(None, r.json()['result'])
+            self.assertEqual([], r.json()['result'])
             r = requests.get(f'http://127.0.0.1:{sport}/3270/rest/json/Set(-defer)')
             self.assertTrue(r.ok)
-            self.assertEqual(None, r.json()['result'])
+            self.assertEqual([], r.json()['result'])
 
         # Wait for the processes to exit.
         requests.get(f'http://127.0.0.1:{sport}/3270/rest/json/Quit()')

@@ -49,6 +49,7 @@
 #include "actions.h"
 #include "bind-opt.h"
 #include "codepage.h"
+#include "cookiefile.h"
 #include "ctlrc.h"
 #include "unicodec.h"
 #include "ft.h"
@@ -78,6 +79,7 @@
 #include "sio_glue.h"
 #include "task.h"
 #include "telnet.h"
+#include "telnet_new_environ.h"
 #include "toggles.h"
 #include "trace.h"
 #include "screentrace.h"
@@ -218,6 +220,7 @@ main(int argc, char *argv[])
     login_macro_register();
     vstatus_register();
     prefer_register();
+    telnet_new_environ_register();
 
     argc = parse_command_line(argc, (const char **)argv, &cl_hostname);
 
@@ -246,6 +249,9 @@ main(int argc, char *argv[])
     }
     ft_init();
     hostfile_init();
+    if (!cookiefile_init()) {
+	exit(1);
+    }
 
 #if !defined(_WIN32) /*[*/
     /* Make sure we don't fall over any SIGPIPEs. */

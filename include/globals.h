@@ -213,6 +213,7 @@ extern char		full_model_name[];
 extern bool		*funky_font;
 extern char		*hostname;
 extern unsigned		host_flags;
+extern char		*host_user;
 extern char		luname[];
 #if defined(LOCAL_PROCESS) /*[*/
 extern bool		local_process;
@@ -236,6 +237,7 @@ extern bool		visible_control;
 extern int		*xtra_width;
 extern int		x3270_exit_code;
 extern bool		x3270_exiting;
+extern char		*security_cookie;
 
 #if defined(_WIN32) /*[*/
 extern char		*instdir;

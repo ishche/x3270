@@ -43,7 +43,6 @@
 #include "glue_gui.h"
 #include "host.h"
 #include "host_gui.h"
-#include "lazya.h"
 #include "login_macro.h"
 #include "names.h"
 #include "popups.h"
@@ -54,6 +53,8 @@
 #include "telnet_core.h"
 #include "toggles.h"
 #include "trace.h"
+#include "txa.h"
+#include "uri.h"
 #include "screentrace.h"
 #include "utils.h"
 #include "xio.h"
@@ -80,6 +81,7 @@ char	       *reconnect_host = NULL;
 char	       *qualified_host = NULL;
 enum iaction	connect_ia = IA_NONE;
 bool		host_retry_mode = false;
+char 	       *host_user = NULL;
 
 struct host *hosts = NULL;
 static struct host *last_host = NULL;
@@ -137,7 +139,7 @@ read_hosts_file(void)
 
     hostfile_name = appres.hostsfile;
     if (hostfile_name == NULL) {
-	hostfile_name = xs_buffer("%s/ibm_hosts", appres.conf_dir);
+	hostfile_name = Asprintf("%s/ibm_hosts", appres.conf_dir);
     } else {
 	hostfile_name = do_subst(appres.hostsfile, DS_VARS | DS_TILDE);
     }
@@ -477,6 +479,17 @@ split_host(char *s, unsigned *flags, char *xluname, char **port, char **accept,
     *flags = 0;
     *needed = false;
 
+    if (is_x3270_uri(s)) {
+	char *password;
+	const char *err;
+
+	if (!parse_x3270_uri(s, &host, port, flags, &host_user, &password, &lu, accept, &err)) {
+	    popup_an_error("URI error in '%s': %s", s, err);
+	    return NULL;
+	}
+	goto done;
+    }
+
     /* Call the sane, new version. */
     if (!new_split_host(s, &lu, &host, port, accept, flags, &error)) {
 	popup_an_error("%s", error);
@@ -484,6 +497,7 @@ split_host(char *s, unsigned *flags, char *xluname, char **port, char **accept,
 	return NULL;
     }
 
+done:
     if (lu) {
 	strncpy(xluname, lu, LUNAME_SIZE);
 	xluname[LUNAME_SIZE] = '\0';
@@ -614,7 +628,7 @@ host_connect(const char *n, enum iaction ia)
     }
 
     has_colons = (strchr(chost, ':') != NULL);
-    Replace(qualified_host, xs_buffer("%s%s%s%s%s:%s%s%s",
+    Replace(qualified_host, Asprintf("%s%s%s%s%s:%s%s%s",
 		HOST_FLAG(TLS_HOST)? "L:": "",
 		HOST_FLAG(NO_VERIFY_CERT_HOST)? "Y:": "",
 		has_colons? "[": "",
@@ -684,8 +698,8 @@ host_connect(const char *n, enum iaction ia)
     /* Set state and tell the world. */
     if (nc == NC_CONNECT_PENDING) {
 	change_cstate(TCP_PENDING, "host_connect");
-    } else {
-	/* cstate == NC_CONNECTED */
+    } else if (cstate != TLS_PENDING) {
+	/* nc == NC_CONNECTED and TLS not pending */
 	if (appres.nvt_mode || HOST_FLAG(ANSI_HOST)) {
 	    change_cstate(CONNECTED_NVT, "host_connect");
 	} else {
@@ -815,8 +829,9 @@ host_disconnect(bool failed)
     if (cstate != RECONNECTING) {
 	change_cstate(NOT_CONNECTED, "host_disconnect");
 
-	/* Forget pending state. */
+	/* Forget pending string. */
 	Replace(host_ps, NULL);
+	Replace(host_user, NULL);
     }
 
     /* No more host, no more host flags. */

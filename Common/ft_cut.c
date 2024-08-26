@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996-2022 Paul Mattes.
+ * Copyright (c) 1996-2024 Paul Mattes.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -391,23 +391,25 @@ download_convert(unsigned const char *buf, unsigned len, unsigned char *xobuf)
 void
 ft_cut_data(void)
 {
-    switch (ea_buf[O_FRAME_TYPE].ec) {
-    case FT_CONTROL_CODE:
-	cut_control_code();
-	break;
-    case FT_DATA_REQUEST:
-	cut_data_request();
-	break;
-    case FT_RETRANSMIT:
-	cut_retransmit();
-	break;
-    case FT_DATA:
-	cut_data();
-	break;
-    default:
-	trace_ds("< FT unknown 0x%02x\n", ea_buf[O_FRAME_TYPE].ec);
-	cut_abort(get_message("ftCutUnknownFrame"), SC_ABORT_XMIT);
-	break;
+    if (ea_buf[O_SF].fa && FA_IS_SKIP(ea_buf[O_SF].fa)) {
+	switch (ea_buf[O_FRAME_TYPE].ec) {
+	case FT_CONTROL_CODE:
+	    cut_control_code();
+	    break;
+	case FT_DATA_REQUEST:
+	    cut_data_request();
+	    break;
+	case FT_RETRANSMIT:
+	    cut_retransmit();
+	    break;
+	case FT_DATA:
+	    cut_data();
+	    break;
+	default:
+	    trace_ds("< FT unknown 0x%02x\n", ea_buf[O_FRAME_TYPE].ec);
+	    cut_abort(get_message("ftCutUnknownFrame"), SC_ABORT_XMIT);
+	    break;
+	}
     }
 }
 
@@ -530,7 +532,7 @@ cut_data_request(void)
 	}
 
 	/* Abort the transfer. */
-	msg = xs_buffer("read(%s): %s", ftc->local_filename, strerror(errno));
+	msg = Asprintf("read(%s): %s", ftc->local_filename, strerror(errno));
 	cut_abort(msg, SC_ABORT_FILE);
 	Free(msg);
 	return;
@@ -634,7 +636,7 @@ cut_data(void)
     if (fwrite((char *)cvobuf, conv_length, 1, fts.local_file) == 0) {
 	char *msg;
 
-	msg = xs_buffer("write(%s): %s", ftc->local_filename, strerror(errno));
+	msg = Asprintf("write(%s): %s", ftc->local_filename, strerror(errno));
 	cut_abort(msg, SC_ABORT_FILE);
 	Free(msg);
     } else {

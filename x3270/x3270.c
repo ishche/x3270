@@ -52,6 +52,7 @@
 #include "bind-opt.h"
 #include "boolstr.h"
 #include "codepage.h"
+#include "cookiefile.h"
 #include "ctlrc.h"
 #include "ft.h"
 #include "host.h"
@@ -61,7 +62,6 @@
 #include "idle.h"
 #include "keymap.h"
 #include "kybd.h"
-#include "lazya.h"
 #include "login_macro.h"
 #include "min_version.h"
 #include "model.h"
@@ -84,8 +84,10 @@
 #include "status.h"
 #include "task.h"
 #include "telnet.h"
+#include "telnet_new_environ.h"
 #include "toggles.h"
 #include "trace.h"
+#include "txa.h"
 #include "screentrace.h"
 #include "utils.h"
 #include "vstatus.h"
@@ -158,6 +160,7 @@ XrmOptionDescRec base_options[]= {
     { OptCodePage,	DotCodePage,	XrmoptionSepArg,	NULL },
     { OptColorScheme,	DotColorScheme,	XrmoptionSepArg,	NULL },
     { OptConnectTimeout,DotConnectTimeout,XrmoptionSepArg,	NULL },
+    { OptCookieFile,	DotCookieFile,	XrmoptionSepArg,	NULL },
     { OptDevName,	DotDevName,	XrmoptionSepArg,	NULL },
     { OptTrace,		DotTrace,	XrmoptionNoArg,		ResTrue },
 #if defined(LOCAL_PROCESS) /*[*/
@@ -205,6 +208,7 @@ XrmOptionDescRec base_options[]= {
     { OptInputMethod,	DotInputMethod,	XrmoptionSepArg,	NULL },
     { OptPreeditType,	DotPreeditType,	XrmoptionSepArg,	NULL },
     { OptUser,		DotUser,	XrmoptionSepArg,	NULL },
+    { OptUtEnv,		DotUtEnv,	XrmoptionNoArg,		ResTrue },
     { OptUtf8,		DotUtf8,	XrmoptionNoArg,		ResTrue },
     { OptVerifyHostCert,DotVerifyHostCert,XrmoptionNoArg,	ResTrue },
     { OptXrm,		NULL,		XrmoptionResArg,	NULL }
@@ -242,6 +246,7 @@ static struct option_help {
     { OptCodePage, "<name>", "Use host EBCDIC code page <name>" },
     { OptColorScheme, "<name>", "Use color scheme <name>" },
     { OptConnectTimeout, "<seconds>", "Timeout for host connect requests" },
+    { OptCookieFile, "<path>", "Pathname of security cookie file" },
     { OptDevName, "<name>", "Device name (workstation ID)" },
 #if defined(LOCAL_PROCESS) /*[*/
     { OptLocalProcess, "<command> [arg...]", "Run process instead of connecting to host" },
@@ -295,6 +300,7 @@ static struct option_help {
     { OptInputMethod, "<name>", "Multi-byte input method" },
     { OptPreeditType, "<style>", "Define input method pre-edit type" },
     { OptUser, "<name>", "User name for RFC 4777" },
+    { OptUtEnv, NULL, "Allow unit test options in the environment" },
     { OptUtf8, NULL, "Force script I/O to use UTF-8" },
     { OptV, NULL, "Display build options and character sets" },
     { OptVerifyHostCert, NULL, "Verify TLS host certificate (enabled by default)",
@@ -339,7 +345,7 @@ setup_options(void)
     for (i = 0; i < num_base_options; i++) {
 	struct option_help *help = find_option_help(base_options[i].option);
 	if (help == NULL) {
-	    Error(xs_buffer("Option %s has no help", base_options[i].option));
+	    Error(Asprintf("Option %s has no help", base_options[i].option));
 	}
 
 	if (!help->tls_flag || (help->tls_flag & tls_options)) {
@@ -356,7 +362,7 @@ setup_options(void)
     for (i = 0; i < num_base_options; i++) {
 	struct option_help *help = find_option_help(base_options[i].option);
 	if (help == NULL) {
-	    Error(xs_buffer("Option %s has no help", base_options[i].option));
+	    Error(Asprintf("Option %s has no help", base_options[i].option));
 	}
 
 	if (!help->tls_flag || (help->tls_flag & tls_options)) {
@@ -409,7 +415,7 @@ static void
 no_minus(char *arg)
 {
     if (arg[0] == '-') {
-	usage(xs_buffer("Unknown or incomplete option: '%s'", arg));
+	usage(Asprintf("Unknown or incomplete option: '%s'", arg));
     }
 }
 
@@ -481,7 +487,7 @@ main(int argc, char *argv[])
 	char *path = getenv("PATH");
 
 	/* Add our path to $PATH so we can find x3270if. */
-	putenv(xs_buffer("PATH=%.*s%s%s", 
+	putenv(Asprintf("PATH=%.*s%s%s", 
 		    (int)(programname - argv[0]), argv[0],
 		    path? ":": "",
 		    path? path: ""));
@@ -539,6 +545,7 @@ main(int argc, char *argv[])
     login_macro_register();
     vstatus_register();
     prefer_register();
+    telnet_new_environ_register();
 
     /* Translate and validate -set and -clear toggle options. */
 #if defined(DEBUG_SET_CLEAR) /*[*/
@@ -627,7 +634,7 @@ main(int argc, char *argv[])
 	}
 	no_minus(argv[1]);
 	no_minus(argv[2]);
-	cl_hostname = xs_buffer("%s:%s", argv[1], argv[2]);
+	cl_hostname = Asprintf("%s:%s", argv[1], argv[2]);
 	break;
     default:
 	for (i = 0; i < argc; i++) {
@@ -831,6 +838,9 @@ main(int argc, char *argv[])
     icon_init();
 
     hostfile_init();
+    if (!cookiefile_init()) {
+        exit(1);
+    }
 
     if (xappres.char_class != NULL) {
 	reclass(xappres.char_class);
@@ -896,8 +906,8 @@ main(int argc, char *argv[])
 	/* Run tasks. */
 	run_tasks();
 
-	/* Flush the lazy allocation ring. */
-	lazya_flush();
+	/* Free transaction memory. */
+	txflush();
     }
 }
 
@@ -1153,7 +1163,7 @@ requote(const char *s)
 	}
     }
     *r = '\0';
-    lazya(ret);
+    txdFree(ret);
     return ret;
 }
 
@@ -1220,7 +1230,7 @@ parse_set_clear(int *argcp, char **argv)
 		    }
 		}
 		argv_out[argc_out++] = OptXrm;
-		argv_out[argc_out++] = xs_buffer("x3270.%s: %s",
+		argv_out[argc_out++] = Asprintf("x3270.%s: %s",
 			toggle_names[j].name, value? ResTrue: ResFalse);
 		found = true;
 		break;
@@ -1232,10 +1242,10 @@ parse_set_clear(int *argcp, char **argv)
 		    eq? eq + 1: (is_set? ResTrue: ResFalse), &proper_name);
 
 	    if (xt == 0 && eq) {
-		proper_name = lazyaf("%.*s", (int)(eq - argv[i]), argv[i]);
+		proper_name = txAsprintf("%.*s", (int)(eq - argv[i]), argv[i]);
 	    }
 	    argv_out[argc_out++] = OptXrm;
-	    argv_out[argc_out++] = lazyaf("x3270.%s: %s", proper_name,
+	    argv_out[argc_out++] = txAsprintf("x3270.%s: %s", proper_name,
 			(eq != NULL)? requote(eq + 1):
 			    (is_set? ResTrue: ResFalse));
 	}
@@ -1313,6 +1323,8 @@ copy_xres_to_res_bool(void)
     copy_bool(unlock_delay);
     copy_bool(utf8);
     copy_bool(wrong_terminal_name);
+    copy_bool(tls992);
+    copy_bool(ut_env);
 
     copy_bool(interactive.do_confirms);
     copy_bool(interactive.mono);

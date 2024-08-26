@@ -29,89 +29,59 @@
 
 import os
 import requests
-import shutil
-import stat
 from subprocess import Popen, PIPE, DEVNULL, check_output
-import tempfile
 import unittest
 
 import Common.Test.playback as playback
 import Common.Test.cti as cti
+import x3270.Test.tvs as tvs
 
-@unittest.skipIf(os.system('xset q >/dev/null 2>&1') != 0, "X11 server needed for tests")
-@unittest.skipIf(os.system('tightvncserver --help 2>/dev/null') != 65280, "tightvncserver needed for tests")
+@unittest.skipIf(tvs.tightvncserver_test() == False, "tightvncserver needed for tests")
 class TestX3270WmName(cti.cti):
-
-    # Set up procedure.
-    def setUp(self):
-        if 'DISPLAY' in os.environ:
-            self.display = os.environ['DISPLAY']
-        else:
-            self.display = None
-        cti.cti.setUp(self)
-
-    # Tear-down procedure.
-    def tearDown(self):
-        # Restore DISPLAY so other tests aren't confused.
-        if self.display != None:
-            os.environ['DISPLAY'] = self.display
-        # Tear down the VNC server, in case a test failed and did not
-        # clean up.
-        os.system('tightvncserver -kill :2 2>/dev/null')
-        cti.cti.tearDown(self)
 
     # x3270 title test.
     def title_test(self, cmdlineTitle: bool = False):
 
         # Start a tightvnc server.
-        # The password file needs to be 0600 or Vnc will prompt for it again.
-        os.chmod('x3270/Test/vnc/.vnc/passwd', stat.S_IREAD | stat.S_IWRITE)
-        cwd=os.getcwd()
-        os.environ['HOME'] = cwd + '/x3270/Test/vnc'
-        os.environ['USER'] = 'foo'
-        # Set SSH_CONNECTION to keep the VirtualBox extensions from starting in the tightvncserver.
-        os.environ['SSH_CONNECTION'] = 'foo'
-        self.assertEqual(0, os.system('tightvncserver :2 2>/dev/null'))
-        self.check_listen(5902)
+        with tvs.tightvncserver(self):
 
-        # Start 'playback' to feed x3270.
-        playback_port, ts = cti.unused_port()
-        with playback.playback(self, 's3270/Test/ibmlink.trc', port=playback_port) as p:
-            self.check_listen(playback_port)
-            ts.close()
+            # Start 'playback' to feed x3270.
+            playback_port, ts = cti.unused_port()
+            with playback.playback(self, 's3270/Test/ibmlink.trc', port=playback_port) as p:
+                ts.close()
 
-            # Start x3270.
-            os.environ['DISPLAY'] = ':2'
-            x3270_port, ts = cti.unused_port()
-            cmdline = ["x3270",
-                "-xrm", f"x3270.connectFileName: {os.getcwd()}/x3270/Test/vnc/.x3270connect",
-                "-httpd", f"127.0.0.1:{x3270_port}" ]
-            if cmdlineTitle:
-                cmdline += [ '-title', 'foo']
-            cmdline.append(f'127.0.0.1:{playback_port}')
-            x3270 = Popen(cti.vgwrap(cmdline), stdout=DEVNULL)
-            self.children.append(x3270)
-            self.check_listen(x3270_port)
-            ts.close()
+                # Start x3270.
+                x3270_port, ts = cti.unused_port()
+                cmdline = ["x3270",
+                    "-xrm", f"x3270.connectFileName: {os.getcwd()}/x3270/Test/vnc/.x3270connect",
+                    "-httpd", f"127.0.0.1:{x3270_port}" ]
+                if cmdlineTitle:
+                    cmdline += [ '-title', 'foo']
+                cmdline.append(f'127.0.0.1:{playback_port}')
+                env = os.environ.copy()
+                env['DISPLAY'] = ':2'
+                x3270 = Popen(cti.vgwrap(cmdline), stdout=DEVNULL, env=env)
+                self.children.append(x3270)
+                self.check_listen(x3270_port)
+                ts.close()
 
-            # Feed x3270 some data.
-            p.send_records(4)
+                # Feed x3270 some data.
+                p.send_records(4)
 
-            # Find x3270's window ID using Query().
-            r = requests.get(f'http://127.0.0.1:{x3270_port}/3270/rest/json/Query(WindowId)')
-            wid = r.json()['result'][0]
+                # Find x3270's window ID using Query().
+                r = requests.get(f'http://127.0.0.1:{x3270_port}/3270/rest/json/Query(WindowId)')
+                wid = r.json()['result'][0]
 
-            # Check the _NET_WM_NAME property (the window title).
-            name = check_output(['xprop', '-id', wid, '_NET_WM_NAME'])
-            if cmdlineTitle:
-                self.assertEqual(name.decode(), f'_NET_WM_NAME(UTF8_STRING) = "foo"\n')
-            else:
-                self.assertEqual(name.decode(), f'_NET_WM_NAME(UTF8_STRING) = "x3270-4 127.0.0.1:{playback_port}"\n')
+                # Check the _NET_WM_NAME property (the window title).
+                name = check_output(['xprop', '-display', ':2', '-id', wid, '_NET_WM_NAME'])
+                if cmdlineTitle:
+                    self.assertEqual(name.decode(), f'_NET_WM_NAME(UTF8_STRING) = "foo"\n')
+                else:
+                    self.assertEqual(name.decode(), f'_NET_WM_NAME(UTF8_STRING) = "x3270-4 127.0.0.1:{playback_port}"\n')
 
-        # Wait for the process to exit.
-        requests.get(f'http://127.0.0.1:{x3270_port}/3270/rest/json/Quit()')
-        self.vgwait(x3270)
-        self.assertEqual(0, os.system('tightvncserver -kill :2 2>/dev/null'))
+            # Wait for the process to exit.
+            requests.get(f'http://127.0.0.1:{x3270_port}/3270/rest/json/Quit()')
+            self.vgwait(x3270)
 
     # x3270 default title test.
     def test_default_title(self):

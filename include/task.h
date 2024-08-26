@@ -110,15 +110,21 @@ typedef struct {
     irv_t *irv;
     task_command_cb command;
     task_reqinput_cb reqinput;
+    task_setflags_cb setxflags;
+    task_getflags_cb getxflags;
 } tcb_t;
 #define CB_UI		0x1	/* came from the UI */
 #define CB_NEEDS_RUN	0x2	/* needs its run method called */
 #define CB_NEW_TASKQ	0x4	/* creates a new task queue */
 #define CB_PEER		0x8	/* peer script (don't abort) */
+#define CB_NEEDCOOKIE	0x10	/* needs a valid cookie */
 
 #define CBF_INTERACTIVE	0x1	/* settable: interactive (e.g., c3270 prompt) */
 #define CBF_CONNECT_FT_NONBLOCK 0x2 /* do not block Connect()/Open()/Transfer() */
 #define CBF_PWINPUT	0x4	/* can do password (no echo) input */
+#define CBF_ERRD	0x8	/* understands 'errd:' error output */
+
+#define XF_HAVECOOKIE	0x1	/* has a valid cookie */
 char *push_cb(const char *buf, size_t len, const tcb_t *cb,
 	task_cbh handle);
 struct cmd {
@@ -130,6 +136,7 @@ void task_activate(task_cbh handle);
 void task_register(void);
 char *task_cb_prompt(task_cbh handle);
 unsigned long task_cb_msec(task_cbh handle);
+const char *task_cb_name(void *);
 
 typedef bool continue_fn(void *, const char *);
 typedef void abort_fn(void *);

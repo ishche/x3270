@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000-2023 Paul Mattes.
+ * Copyright (c) 2000-2024 Paul Mattes.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -208,7 +208,7 @@ usage(const char *errmsg)
 static void
 missing_value(const char *option)
 {
-    usage(xs_buffer("Missing value for '%s'\n", option));
+    usage(Asprintf("Missing value for '%s'\n", option));
 }
 
 /* Print command-line help. */
@@ -386,7 +386,7 @@ xs_warning(const char *fmt, ...)
     char *b;
 
     va_start(args, fmt);
-    b = xs_vbuffer(fmt, args);
+    b = Vasprintf(fmt, args);
     va_end(args);
     errmsg("%s", b);
 }
@@ -825,6 +825,8 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n", cyear);
 	    }
 	    options.proxy_spec = argv[i + 1];
 	    i++;
+	} else if (!strcmp(argv[i], OptUtEnv)) {
+	    options.ut_env = true;
 	} else if (!strcmp(argv[i], "-xtable")) {
 	    if (argc <= i + 1 || !argv[i + 1][0]) {
 		missing_value("-xtable");
@@ -1273,7 +1275,7 @@ popup_a_vxerror(pae_t type, const char *fmt, va_list args)
 const char *
 build_options(void)
 {
-    return xs_buffer("Build options:%s"
+    return Asprintf("Build options:%s"
 #if defined(_MSC_VER) /*[*/
 	" via MSVC " xstr(_MSC_VER)
 #endif /*]*/
@@ -1306,4 +1308,10 @@ void
 RemoveTimeOut(ioid_t cookie)
 {
     assert(false);
+}
+
+const char *
+ut_getenv(const char *name)
+{
+    return options.ut_env? getenv(name): NULL;
 }

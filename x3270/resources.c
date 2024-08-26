@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1993-2023 Paul Mattes.
+ * Copyright (c) 1993-2024 Paul Mattes.
  * Copyright (c) 1990, Jeff Sparkes.
  * Copyright (c) 1989, Georgia Tech Research Corporation (GTRC), Atlanta,
  *  GA 30332.
@@ -122,6 +122,8 @@ XtResource resources[] = {
       offset(nop_seconds), XtRString, "0" },
     { ResMinVersion, ClsMinVersion, XtRString, sizeof(String),
       offset(min_version), XtRString, 0 },
+    { ResCookieFile, ClsCookieFile, XtRString, sizeof(String),
+      offset(cookie_file), XtRString, 0 },
 
     { ResErase, ClsErase, XtRString, sizeof(char *),
       offset(linemode.erase), XtRString, "^?" },
@@ -353,6 +355,10 @@ XtResource xresources[] = {
       boffset(utf8), XtRString, ResFalse },
     { ResWrongTerminalName, ClsWrongTerminalName, XtRBoolean, sizeof(Boolean),
       boffset(wrong_terminal_name), XtRString, ResFalse },
+    { ResTls992, ClsTls992, XtRBoolean, sizeof(Boolean),
+      boffset(tls992), XtRString, ResTrue },
+    { ResUtEnv, ClsUtEnv, XtRBoolean, sizeof(Boolean),
+      boffset(ut_env), XtRString, ResTrue },
 
     { ResMonoCase, ClsMonoCase, XtRBoolean, sizeof(Boolean),
       btoffset(MONOCASE), XtRString, ResFalse },

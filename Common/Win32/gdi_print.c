@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994-2019 Paul Mattes.
+ * Copyright (c) 1994-2024 Paul Mattes.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -360,8 +360,8 @@ create_roman_font(HDC dc, int fheight, int fwidth, const char **fail)
 {
     char *w, *h;
 
-    w = fwidth? xs_buffer("%d", fwidth): NewString("(auto)");
-    h = fheight? xs_buffer("%d", fheight): NewString("(auto)");
+    w = fwidth? Asprintf("%d", fwidth): NewString("(auto)");
+    h = fheight? Asprintf("%d", fheight): NewString("(auto)");
     vtrace("[gdi] requesting a font %sx%s logical units\n", w, h);
     Free(w);
     Free(h);
@@ -444,6 +444,21 @@ print_dialog_complete(iosrc_t fd _is_unused, ioid_t id _is_unused)
 }
 
 /*
+ * Hook procedure for the print dialog.
+ */
+static UINT_PTR CALLBACK
+print_dialog_hook(HWND hdlg, UINT ui_msg, WPARAM wparam, LPARAM lparam)
+{
+    /* When WM_INITDIALOG comes, make this the topmost window. */
+    if (ui_msg == WM_INITDIALOG) {
+	SetWindowPos(hdlg, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+	return TRUE;
+    }
+
+    return FALSE;
+}
+
+/*
  * Initalize the named GDI printer. If the name is NULL, use the default
  * printer.
  */
@@ -482,7 +497,8 @@ gdi_init(const char *printer_name, unsigned opts, const char **fail,
 	memset(&pstate.dlg, '\0', sizeof(pstate.dlg));
 	pstate.dlg.lStructSize = sizeof(pstate.dlg);
 	pstate.dlg.Flags = PD_RETURNDC | PD_NOPAGENUMS | PD_HIDEPRINTTOFILE |
-	    PD_NOSELECTION;
+	    PD_NOSELECTION | PD_ENABLEPRINTHOOK;
+	pstate.dlg.lpfnPrintHook = print_dialog_hook;
     }
 
     if (printer_name == NULL || !*printer_name) {

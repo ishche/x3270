@@ -1,4 +1,4 @@
-# Copyright (c) 2007-2018, 2020 Paul Mattes.
+# Copyright (c) 2007-2024 Paul Mattes.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -46,27 +46,26 @@ clean:
 
 # Rules for HTML files with the navigation bar.
 documentation.html: documentation-body.html mkpages.bash version.txt
-	./mkpages.bash documentation
+	./mkpages.bash -I../Common documentation
 documentation-bugs.html: documentation-bugs-body.html mkpages.bash version.txt
-	./mkpages.bash documentation-bugs
-documentation-manpages.html: documentation-manpages-body.html mkpages.bash \
-    	version.txt
-	./mkpages.bash documentation-manpages
+	./mkpages.bash -I../Common documentation-bugs
+documentation-manpages.html: documentation-manpages-body.html mkpages.bash  version.txt
+	./mkpages.bash -I../Common documentation-manpages
 documentation-misc.html: documentation-misc-body.html mkpages.bash version.txt
-	./mkpages.bash documentation-misc
+	./mkpages.bash -I../Common documentation-misc
 documentation-other.html: documentation-other-body.html mkpages.bash version.txt
-	./mkpages.bash documentation-other
+	./mkpages.bash -I../Common documentation-other
 index.html: index-body.html mkpages.bash version.txt
-	./mkpages.bash index
+	./mkpages.bash -I../Common index
 screenshots.html: screenshots-body.html mkpages.bash version.txt
-	./mkpages.bash screenshots
+	./mkpages.bash -I../Common screenshots
 x026.html: x026-body.html mkpages.bash version.txt
-	./mkpages.bash x026
+	./mkpages.bash -I../Common x026
 
 c3270-man.html:
 	cd ../c3270 && $(MAKE) -f Makefile.aux html/c3270-man.html
 ibm_hosts.html:
-	cd ../x3270 && $(MAKE) -f Makefile.aux html/ibm_hosts.html
+	cd ../ibm_hosts && $(MAKE) -f Makefile.aux html/ibm_hosts.html
 pr3287-man.html:
 	cd ../pr3287 && $(MAKE) -f Makefile.aux html/pr3287-man.html
 s3270-man.html:
@@ -78,5 +77,11 @@ x3270-man.html:
 wc3270-man.html:
 	cd ../wc3270 && $(MAKE) -f Makefile.aux html/wc3270-man.html
 
-webpage.tgz: $(PAGES) $(OTHERS) mkpages.bash Makefile
-	tar -czhf webpage.tgz $(PAGES) $(OTHERS)
+WPDIR=../obj/Webpage
+TARBALL=$(WPDIR)/webpage.tgz
+$(WPDIR):
+	mkdir -p $@
+
+webpage.tgz: $(WPDIR) $(PAGES) $(OTHERS) mkpages.bash Makefile
+	./mktar.bash -I../Common -I../c3270/html -I../ibm_hosts/html -I../pr3287/html -I../s3270/html -I../tcl3270/html -I../x3270/html -I../wc3270/html -o $(TARBALL) $(PAGES) $(OTHERS)
+	@ls -l $(TARBALL)

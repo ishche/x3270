@@ -48,6 +48,7 @@
 #define AnClose		"Close"
 #define AnCompose	"Compose"
 #define AnConnect	"Connect"
+#define AnCookie	"Cookie"
 #define AnCopy		"Copy"
 #define AnCrash		"Crash"
 #define AnCursorSelect	"CursorSelect"
@@ -154,6 +155,7 @@
 /*  Parameters to Capabilities(). */
 #define KwInteractive	"interactive"
 #define KwPwInput	"pwinput"
+#define KwErrd		"errd"
 /*  Parameters to Crash(). */
 #define KwAssert	"assert"
 #define KwExit		"exit"

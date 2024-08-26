@@ -1,4 +1,4 @@
-# Copyright (c) 1993-2023 Paul Mattes.
+# Copyright (c) 1993-2024 Paul Mattes.
 # All rights reserved.
 # 
 # Redistribution and use in source and binary forms, with or without
@@ -29,12 +29,8 @@
 
 RM = rm -f
 CC = @CC@
-BUILDCC = @BUILDCC@
-ifeq ($(strip $(BUILDCC)),)
-BUILDCC=$(CC)
-endif
 
-all: tcl3270 x3270if s3270
+all: tcl3270
 
 HOST = @host@
 include tcl3270_files.mk libs.mk
@@ -69,21 +65,12 @@ version.o: mkversion.sh $(VOBJS) version.txt
 	$(RM) $(XVERSION)
 
 FALLBACKS = fb-common
-fallbacks.c: mkfb $(FALLBACKS)
+fallbacks.c: $(FALLBACKS)
 	$(RM) $@
-	./mkfb -c -o $@ $(filter-out mkfb,$^)
-
-mkfb: mkfb.c
-	$(BUILDCC) $(XCPPFLAGS) -o $@ $(filter %.c,$^)
+	../mkfb/mkfb -c -o $@ $^
 
 tcl3270: $(OBJS1)
 	$(CC) -o $@ $(OBJS1) $(LDFLAGS) $(LIBS)
-
-x3270if: ../x3270if/x3270if
-	cp -p ../x3270if/x3270if $@
-
-s3270: ../s3270/s3270
-	cp -p ../s3270/s3270 $@
 
 man:: tcl3270.man
 	if [ ! -f $(notdir $^) ]; then cp $< $(notdir $^); fi
@@ -102,9 +89,9 @@ install.man: man
 	$(INSTALL_DATA) tcl3270.man $(DESTDIR)$(MANDIR)/man1/tcl3270.1
 
 clean:
-	$(RM) *.o mkfb
+	$(RM) *.o fallbacks.c
 clobber: clean
 	$(RM) tcl3270 *.d *.man
 
 # Include auto-generated dependencies.
--include $(TCL3270_OBJECTS:.o=.d) mkfb.d
+-include $(TCL3270_OBJECTS:.o=.d)

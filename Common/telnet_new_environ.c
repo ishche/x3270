@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2023 Paul Mattes.
+ * Copyright (c) 2017-2024 Paul Mattes.
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
@@ -39,14 +39,18 @@
 
 #include "appres.h"
 
-#include "lazya.h"
+#include "resources.h"
 #include "sio.h"
 #include "telnet.h"
 #include "telnet_core.h"
 #include "telnet_private.h"
+#include "toggles.h"
 #include "trace.h"
+#include "txa.h"
 #include "utils.h"
 #include "varbuf.h"
+
+#include "telnet_new_environ.h"
 
 #define ESCAPED(c)	\
     (c == TELOBJ_VAR || c == TELOBJ_USERVAR || c == TELOBJ_ESC || \
@@ -169,7 +173,7 @@ environ_init(void)
     }
     initted = true;
 
-    user = appres.user? appres.user: getenv("USER");
+    user = host_user? host_user: (appres.user? appres.user: getenv("USER"));
     if (user == NULL) {
 	user = getenv("USERNAME");
     }
@@ -213,7 +217,7 @@ expand_name(const char *s, size_t len)
 	    vb_append(&v, (char *)&c, 1);
 	}
     }
-    return lazya(vb_consume(&v));
+    return txdFree(vb_consume(&v));
 }
 
 /* Expand IACs in a reply buffer. */
@@ -515,4 +519,29 @@ telnet_new_environ(unsigned char *request_buf, size_t request_buflen,
     *trace_inp = vb_consume(&trace_in);
     *trace_outp = vb_consume(&trace_out);
     return true;
+}
+
+/**
+ * Toggle the user name.
+ * @param[in] name	Toggle name.
+ * @param[in] value	Toggle value.
+ * @param[in] flags	Flags.
+ * @param[in] ia	Source of the operation.
+ * @returns success/failure/deferred
+ */
+static toggle_upcall_ret_t
+toggle_user(const char *name _is_unused, const char *value, unsigned flags, ia_t ia)
+{
+    Replace(appres.user, NewString(value));
+    return TU_SUCCESS;
+}
+
+/**
+ * New-environment module registration.
+ */
+void
+telnet_new_environ_register(void)
+{
+    /* Register the toggles. */
+    register_extended_toggle(ResUser, toggle_user, NULL, NULL, (void **)&appres.user, XRM_STRING);
 }

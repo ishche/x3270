@@ -58,7 +58,6 @@
 #include "ft_dft.h"
 #include "host.h"
 #include "kybd.h"
-#include "lazya.h"
 #include "popups.h"
 #include "screen.h"
 #include "scroll.h"
@@ -70,6 +69,7 @@
 #include "telnet_core.h"
 #include "telnet.h"
 #include "trace.h"
+#include "txa.h"
 #include "screentrace.h"
 #include "utils.h"
 #include "vstatus.h"
@@ -2613,12 +2613,9 @@ ps_process(void)
 	;
 
     /* Process file transfers. */
-    if (ft_state != FT_NONE &&      /* transfer in progress */
-	    formatted &&                /* screen is formatted */
-	    !screen_alt &&              /* 24x80 screen */
-	    !(kybdlock & ~KL_FT) &&     /* keyboard not locked */
-	    /* magic field */
-	    ea_buf[1919].fa && FA_IS_SKIP(ea_buf[1919].fa)) {
+    if (ft_state != FT_NONE &&		/* transfer in progress */
+	    formatted &&		/* screen is formatted */
+	    !(kybdlock & ~KL_FT)) {	/* keyboard not locked */
 	ft_cut_data();
     }
 }
@@ -3215,25 +3212,25 @@ ticking_stop(struct timeval *tp)
 const char *
 ctlr_query_cur_size(void)
 {
-    return lazyaf("rows %u columns %u", ROWS, COLS);
+    return txAsprintf("rows %u columns %u", ROWS, COLS);
 }
 
 const char *
 ctlr_query_cur_size_old(void)
 {
-    return lazyaf("%u %u", ROWS, COLS);
+    return txAsprintf("%u %u", ROWS, COLS);
 }
 
 const char *
 ctlr_query_cursor(void)
 {
-    return lazyaf("%u %u", cursor_addr / COLS, cursor_addr % COLS);
+    return txAsprintf("%u %u", cursor_addr / COLS, cursor_addr % COLS);
 }
 
 const char *
 ctlr_query_cursor1(void)
 {
-    return lazyaf("row %u column %u offset %u",
+    return txAsprintf("row %u column %u offset %u",
 	    (cursor_addr / COLS) + 1, (cursor_addr % COLS) + 1, cursor_addr);
 }
 
@@ -3246,13 +3243,13 @@ ctlr_query_formatted(void)
 const char *
 ctlr_query_max_size(void)
 {
-    return lazyaf("rows %u columns %u", maxROWS, maxCOLS);
+    return txAsprintf("rows %u columns %u", maxROWS, maxCOLS);
 }
 
 const char *
 ctlr_query_max_size_old(void)
 {
-    return lazyaf("%u %u", maxROWS, maxCOLS);
+    return txAsprintf("%u %u", maxROWS, maxCOLS);
 }
 
 /*

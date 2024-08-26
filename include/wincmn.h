@@ -95,6 +95,9 @@ int safe_snprintf(char *str, size_t size, const char *fmt, ...);
  */
 # define vscprintf	_vscprintf
 
+/* Windows has rand(), not random(). */
+# define random		rand
+
 # if defined(_MSC_VER) /*[*/
 
 /* MSVC does not define the constants for access(). */
@@ -112,6 +115,7 @@ int safe_snprintf(char *str, size_t size, const char *fmt, ...);
 #  define fileno	_fileno
 #  define getcwd	_getcwd
 #  define getpid	_getpid
+#  define lseek		_lseek
 #  define open		_open
 #  define putenv	_putenv
 #  define read		_read

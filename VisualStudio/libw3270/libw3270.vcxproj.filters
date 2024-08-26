@@ -56,5 +56,9 @@
     <ClCompile Include="..\..\Common\stdinscript.c" />
     <ClCompile Include="..\..\Common\save_restore.c" />
     <ClCompile Include="..\..\Common\vstatus.c" />
+    <ClCompile Include="..\..\Common\s3common.c" />
+    <ClCompile Include="..\..\Common\uri.c" />
+    <ClCompile Include="..\..\Common\percent_decode.c" />
+    <ClCompile Include="..\..\Common\cookiefile.c" />
   </ItemGroup>
 </Project>

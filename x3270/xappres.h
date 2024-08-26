@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1993-2023 Paul Mattes.
+ * Copyright (c) 1993-2024 Paul Mattes.
  * Copyright (c) 1990 Jeff Sparkes.
  * All rights reserved.
  *
@@ -113,6 +113,8 @@ typedef struct {
 	Boolean unlock_delay;
 	Boolean utf8;
 	Boolean wrong_terminal_name;
+	Boolean tls992;
+	Boolean ut_env;
 	struct {
 	    Boolean do_confirms;
 	    Boolean menubar;

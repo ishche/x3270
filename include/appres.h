@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1993-2023 Paul Mattes.
+ * Copyright (c) 1993-2024 Paul Mattes.
  * Copyright (c) 1990 Jeff Sparkes.
  * All rights reserved.
  *
@@ -109,6 +109,9 @@ typedef struct {
     char	*user;		/* for 5250 */
     bool	 utf8;
     bool	 wrong_terminal_name;
+    bool	 tls992;
+    char	*cookie_file;
+    bool	 ut_env;
 
     /* Toggles. */
     bool toggle[N_TOGGLES];

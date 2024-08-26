@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1995-2023 Paul Mattes.
+ * Copyright (c) 1995-2024 Paul Mattes.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -77,6 +77,7 @@
 #define ResConsole		"console"
 #define ResConsoleColorForHostColor "consoleColorForHostColor"
 #define ResContentionResolution	"contentionResolution"
+#define ResCookieFile		"cookieFile"
 #define ResCrosshair		"crosshair"
 #define ResCrosshairColor	"crosshairColor"
 #define ResCursesColorFor	"cursesColorFor"
@@ -227,6 +228,7 @@
 #define ResSuppress		"suppress"
 #define ResTermName		"termName"
 #define ResTitle		"title"
+#define ResTls992		"tls992"
 #define ResTlsMaxProtocol	"tlsMaxProtocol"
 #define ResTlsMinProtocol	"tlsMinProtocol"
 #define ResTrace		"trace"
@@ -241,6 +243,7 @@
 #define ResUnlockDelayMs	"unlockDelayMs"
 #define ResUseCursorColor	"useCursorColor"
 #define ResUser			"user"
+#define ResUtEnv		"utEnv"
 #define ResUtf8			"utf8"
 #define ResVerifyHostCert	"verifyHostCert"
 #define ResVisibleControl	"visibleControl"
@@ -269,6 +272,7 @@
 #define DotCodePage		"." ResCodePage
 #define DotColorScheme		"." ResColorScheme
 #define DotConnectTimeout	"." ResConnectTimeout
+#define DotCookieFile		"." ResCookieFile
 #define DotDevName		"." ResDevName
 #define DotEmulatorFont		"." ResEmulatorFont
 #define DotHostsFile		"." ResHostsFile
@@ -310,6 +314,7 @@
 #define DotTraceFile		"." ResTraceFile
 #define DotTraceFileSize	"." ResTraceFileSize
 #define DotUser			"." ResUser
+#define DotUtEnv		"." ResUtEnv
 #define DotUtf8			"." ResUtf8
 #define DotVerifyHostCert	"." ResVerifyHostCert
 
@@ -349,6 +354,7 @@
 #define ClsConnectTimeout	"ConnectTimeout"
 #define ClsConsole		"Console"
 #define ClsContentionResolution	"ContentionResolution"
+#define ClsCookieFile		"CookieFile"
 #define ClsCrosshair		"Crosshair"
 #define ClsCrosshairColor	"CrosshairColor"
 #define ClsCursorBlink		"CursorBlink"
@@ -468,6 +474,7 @@
 #define ClsSuppressHost		"SuppressHost"
 #define ClsSuppressFontMenu	"SuppressFontMenu"
 #define ClsTermName		"TermName"
+#define ClsTls992		"Tls992"
 #define ClsTlsMaxProtocol	"TlsMaxProtocol"
 #define ClsTlsMinProtocol	"TlsMinProtocol"
 #define ClsTrace		"Trace"
@@ -481,6 +488,7 @@
 #define ClsUnlockDelayMs	"UnlockDelayMs"
 #define ClsUseCursorColor	"UseCursorColor"
 #define ClsUser			"User"
+#define ClsUtEnv		"UtEnv"
 #define ClsUtf8			"Utf8"
 #define ClsVerifyHostCert	"VerifyHostCert"
 #define ClsVisibleControl	"VisibleControl"
@@ -513,6 +521,7 @@
 #define OptCodePage		"-codepage"
 #define OptColorScheme		"-scheme"
 #define OptConnectTimeout	"-connecttimeout"
+#define OptCookieFile		"-cookiefile"
 #define OptDefaultFgBg		"-defaultfgbg"
 #define OptDefScreen		"-defscreen"
 #define OptDevName		"-devname"
@@ -573,6 +582,7 @@
 #define OptTraceFile		"-tracefile"
 #define OptTraceFileSize	"-tracefilesize"
 #define OptUser			"-user"
+#define OptUtEnv		"-utenv"
 #define OptUtf8			"-utf8"
 #define OptV			"-v"
 #define OptVerifyHostCert	"-verifycert"

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1993-2009, 2014-2016, 2018-2019 Paul Mattes.
+ * Copyright (c) 1993-2024 Paul Mattes.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -46,6 +46,7 @@
 #include "task.h"
 #include "trace.h"
 #include "utils.h"
+#include "wincmn.h"
 
 /* Macros. */
 #define MSEC_PER_SEC	1000L
@@ -242,11 +243,7 @@ reset_idle_timer(void)
 	idle_ms_now = idle_ms;
 	if (idle_randomize) {
 	    idle_ms_now = idle_ms;
-#if defined(_WIN32) /*[*/
-	    idle_ms_now -= rand() % (idle_ms / 10L);
-#else /*][*/
 	    idle_ms_now -= random() % (idle_ms / 10L);
-#endif /*]*/
 	}
 #if defined(DEBUG_IDLE_TIMEOUT) /*[*/
 	vtrace("Setting idle timeout to %lu\n", idle_ms_now);
@@ -339,7 +336,7 @@ idle_data(task_cbh handle, const char *buf, size_t len, bool success)
 	return;
     }
 
-    Replace(idle_result, xs_buffer("%.*s", (int)len, buf));
+    Replace(idle_result, Asprintf("%.*s", (int)len, buf));
 }
 
 /**
