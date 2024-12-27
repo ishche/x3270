@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019 Paul Mattes.
+ * Copyright (c) 2016-2024 Paul Mattes.
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
@@ -31,5 +31,10 @@
  *		Declarations for model.c.
  */
 
-void model_register(void);
+int common_model_init(void);
+char *create_model(int model_num, bool color);
+const char *get_full_model(void);
+const char *get_model(void);
 bool model_can_change(void);
+void model_register(void);
+void oversize_init(int model_number);

@@ -58,6 +58,7 @@
 #include "keymap.h"
 #include "kybd.h"
 #include "menubar.h"
+#include "model.h"
 #include "names.h"
 #include "popups.h"
 #include "print_screen.h"
@@ -1713,7 +1714,7 @@ oversize_button_callback(Widget w _is_unused, XtPointer client_data,
     }
     if (sscanf(s, "%dx%d%c", &ovc, &ovr, &junk) == 2) {
 	XtPopdown(oversize_shell);
-	screen_change_model(model_num, ovc, ovr);
+	screen_remodel(model_num, ovc, ovr);
     } else {
 	popup_an_error("Illegal size: %s", s);
     }
@@ -1729,6 +1730,9 @@ do_oversize_popup(Widget w _is_unused, XtPointer client_data _is_unused,
 		oversize_button_callback, NULL,
 		FORM_NO_WHITE);
     }
+    XtVaSetValues(XtNameToWidget(oversize_shell, ObjDialog),
+        XtNvalue, appres.oversize? appres.oversize: "",
+        NULL);
     popup_popup(oversize_shell, XtGrabExclusive);
 }
 
@@ -1968,9 +1972,8 @@ static void
 change_model_callback(Widget w, XtPointer client_data,
 	XtPointer call_data _is_unused)
 {
-    int m;
+    int m = atoi(client_data);
 
-    m = atoi(client_data);
     switch (model_num) {
     case 2:
 	if (model_2_button != NULL) {
@@ -1994,13 +1997,14 @@ change_model_callback(Widget w, XtPointer client_data,
 	break;
     }
     XtVaSetValues(w, XtNleftBitmap, diamond, NULL);
-    screen_change_model(m, 0, 0);
+    screen_remodel(m, 0, 0);
 }
 
-/* Called to when model changes outside our control */
+/* Called to when model changes outside our control. */
 static void
 menubar_remodel(bool ignored _is_unused)
 {
+    /* Set the model buttons. */
     if (model_2_button != NULL) {
 	XtVaSetValues(model_2_button, XtNleftBitmap,
 		(model_num == 2)? diamond: no_diamond, NULL);
@@ -2016,6 +2020,32 @@ menubar_remodel(bool ignored _is_unused)
     if (model_2_button != NULL) {
 	XtVaSetValues(model_5_button, XtNleftBitmap,
 		(model_num == 5)? diamond: no_diamond, NULL);
+    }
+
+    /* Enable/disable the oversize option. */
+    if (oversize_button != NULL) {
+	XtVaSetValues(oversize_button,
+		XtNsensitive, appres.extended_data_stream,
+		NULL);
+    }
+
+    /* Set the toggle on the extended mode button. */
+    if (extended_button != NULL) {
+	XtVaSetValues(extended_button,
+		XtNleftBitmap, appres.extended_data_stream? dot: (Pixmap)NULL,
+		NULL);
+    }
+
+    /* Set the 3278/3279 toggles. */
+    if (m3278_button != NULL) {
+	XtVaSetValues(m3278_button, XtNleftBitmap,
+		mode3279 ? no_diamond : diamond,
+		NULL);
+    }
+    if (m3279_button != NULL) {
+	XtVaSetValues(m3279_button, XtNleftBitmap,
+		mode3279 ? diamond : no_diamond,
+		NULL);
     }
 }
 
@@ -2120,21 +2150,21 @@ static void
 toggle_extended(Widget w _is_unused, XtPointer client_data _is_unused,
 	XtPointer call_data _is_unused)
 {
-    mode.extended = !mode.extended;
+    appres.extended_data_stream = !appres.extended_data_stream;
     if (extended_button != NULL) {
 	XtVaSetValues(extended_button,
-		XtNleftBitmap, mode.extended? dot: (Pixmap)NULL,
+		XtNleftBitmap, appres.extended_data_stream? dot: (Pixmap)NULL,
 		NULL);
     }
     if (oversize_button != NULL) {
 	XtVaSetValues(oversize_button,
-		XtNsensitive, mode.extended,
+		XtNsensitive, appres.extended_data_stream,
 		NULL);
     }
-    if (!mode.extended) {
-	screen_change_model(model_num, 0, 0);
+    if (!appres.extended_data_stream) {
+	screen_remodel(model_num, 0, 0);
     }
-    screen_extended(mode.extended);
+    screen_extended(appres.extended_data_stream);
 }
 
 static void
@@ -2142,22 +2172,23 @@ toggle_m3279(Widget w, XtPointer client_data _is_unused, XtPointer
 	call_data _is_unused)
 {
     if (w == m3278_button) {
-	mode.m3279 = false;
+	mode3279 = false;
     } else if (w == m3279_button) {
-	mode.m3279 = true;
+	mode3279 = true;
     } else {
 	return;
     }
     XtVaSetValues(m3278_button, XtNleftBitmap,
-	    mode.m3279 ? no_diamond : diamond,
+	    mode3279 ? no_diamond : diamond,
 	    NULL);
     XtVaSetValues(m3279_button, XtNleftBitmap,
-	    mode.m3279 ? diamond : no_diamond,
+	    mode3279 ? diamond : no_diamond,
 	    NULL);
     if (scheme_button != NULL) {
-	XtVaSetValues(scheme_button, XtNsensitive, mode.m3279, NULL);
+	XtVaSetValues(scheme_button, XtNsensitive, mode3279, NULL);
     }
-    screen_m3279(mode.m3279);
+    Replace(appres.model, create_model(model_num, mode3279));
+    screen_m3279(mode3279);
 }
 
 static void
@@ -2281,13 +2312,13 @@ options_menu_init(bool regen, Position x, Position y)
 	    m3278_button = add_menu_itemv( "m3278Option", t,
 		    toggle_m3279, NULL,
 		    &spaced,
-		    XtNleftBitmap, mode.m3279? no_diamond: diamond,
+		    XtNleftBitmap, mode3279? no_diamond: diamond,
 		    XtNsensitive, !PCONNECTED,
 		    NULL);
 	    m3279_button = add_menu_itemv("m3279Option", t,
 		    toggle_m3279, NULL,
 		    &spaced,
-		    XtNleftBitmap, mode.m3279? diamond: no_diamond,
+		    XtNleftBitmap, mode3279? diamond: no_diamond,
 		    XtNsensitive, !PCONNECTED,
 		    NULL);
 	}
@@ -2295,7 +2326,7 @@ options_menu_init(bool regen, Position x, Position y)
 	extended_button = add_menu_itemv("extendedDsOption", t,
 		    toggle_extended, NULL,
 		    &spaced,
-		    XtNleftBitmap, mode.extended? dot: (Pixmap)NULL,
+		    XtNleftBitmap, appres.extended_data_stream? dot: (Pixmap)NULL,
 		    XtNsensitive, !PCONNECTED,
 		    NULL);
 	if (keypad_option_button != NULL ||
@@ -2406,7 +2437,7 @@ options_menu_init(bool regen, Position x, Position y)
 	oversize_button = add_menu_itemv("oversizeOption", t,
 		do_oversize_popup, NULL,
 		NULL,
-		XtNsensitive, mode.extended,
+		XtNsensitive, appres.extended_data_stream,
 		NULL);
 	if (model_2_button != NULL ||
 	    model_3_button != NULL ||
@@ -2460,7 +2491,7 @@ options_menu_init(bool regen, Position x, Position y)
 		"colorsOption", cmeBSBObjectClass, options_menu,
 		XtNrightBitmap, arrow,
 		XtNmenuName, "colorsMenu",
-		XtNsensitive, mode.m3279,
+		XtNsensitive, mode3279,
 		NULL);
 	any = true;
     }

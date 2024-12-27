@@ -29,6 +29,7 @@
 
 import re
 import socket
+import time
 import threading
 import select
 import Common.Test.cti as cti
@@ -76,18 +77,25 @@ class playback():
 
     # Accept a connection asynchronously.
     def process(self):
-        (self.conn, _) = self.listensocket.accept()
-        self.listensocket.close()
-        self.listensocket = None
+        self.listensocket.setblocking(False)
+        while self.listensocket != None and self.conn == None:
+            select.select([self.listensocket], [self.listensocket], [self.listensocket], None)
+            try:
+                (self.conn, _) = self.listensocket.accept()
+            except:
+                break
+        if self.listensocket != None:
+            self.listensocket.close()
+            self.listensocket = None
     
-    def wait_accept(self, timeout=2):
+    def wait_accept(self, timeout=5):
         '''Wait for a connection'''
         if self.thread != None:
             self.ct.try_until(lambda: self.conn != None, timeout, 'Emulator did not connect')
             self.thread.join()
             self.thread = None
 
-    def send_tm(self):
+    def send_tm(self) -> str:
         '''Send a timing mark'''
         self.conn.send(b'\xff\xfd\x06')
         # Wait for it to come back. This code assumes that the emulator will do
@@ -99,6 +107,7 @@ class playback():
             accum += bytes.hex(self.conn.recv(1024))
             if accum.endswith('fffc06'):
                 break
+        return accum
 
     def recv_to_end(self, timeout=2):
         '''Return everything sent on the socket'''
@@ -178,13 +187,14 @@ class playback():
             nleft -= len(chunk)
         return ret
 
-    def match(self, disconnect=True, nrecords=-1):
+    def match(self, disconnect=True, nrecords=-1, nlines=-1):
         '''Compare emulator I/O to trace file'''
         self.wait_accept()
         direction = ''
         accum = ''
         lno = 0
         records = 0
+        lines = 0
         while True:
             lno += 1
             line = self.file.readline()
@@ -196,7 +206,11 @@ class playback():
                 if direction == '<':
                     # Send to emulator.
                     self.conn.send(bytes.fromhex(accum))
-                    # See if we have sent enough.
+                    # See if we have sent enough lines.
+                    lines += 1
+                    if nlines > 0 and lines >= nlines:
+                        break
+                    # See if we have sent enough records.
                     if accum.endswith('ffef'):
                         records += 1
                         if nrecords > 0 and records >= nrecords:

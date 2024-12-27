@@ -47,6 +47,7 @@
 
 #include "fprint_screen.h"
 #include "gdi_print.h"
+#include "names.h"
 #include "nvt.h"
 #include "popups.h"
 #include "task.h"
@@ -304,7 +305,7 @@ gdi_get_params(uparm_t *up)
 
     /* Font size. */
     if ((s = get_resource(ResPrintTextSize)) != NULL) {
-	if (strcasecmp(s, "auto")) {
+	if (strcasecmp(s, KwAuto)) {
 	    l = strtoul(s, &nextp, 0);
 	    if (l > 0) {
 		up->font_size = (int)l;
@@ -449,13 +450,12 @@ print_dialog_complete(iosrc_t fd _is_unused, ioid_t id _is_unused)
 static UINT_PTR CALLBACK
 print_dialog_hook(HWND hdlg, UINT ui_msg, WPARAM wparam, LPARAM lparam)
 {
-    /* When WM_INITDIALOG comes, make this the topmost window. */
-    if (ui_msg == WM_INITDIALOG) {
-	SetWindowPos(hdlg, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
-	return TRUE;
-    }
-
-    return FALSE;
+    /*
+     * Set the window to be topmost. The only thing that seems to work consistently is to do
+     * this for every message.
+     */
+    SetWindowPos(hdlg, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+    return ui_msg == WM_INITDIALOG;
 }
 
 /*

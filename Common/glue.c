@@ -55,6 +55,7 @@
 #include "glue_gui.h"
 #include "host.h"
 #include "kybd.h"
+#include "model.h"
 #include "nvt.h"
 #include "opts.h"
 #include "product.h"
@@ -88,7 +89,6 @@ static void parse_local_process(int *argcp, const char **argv,
 #endif /*]*/
 static void set_appres_defaults(void);
 static void parse_options(int *argcp, const char **argv, bool warn);
-static int parse_model_number(char *m);
 static void xparse_xrm(const char *arg, const char *where, bool warn);
 static void parse_set(const char *arg, const char *where, bool warn);
 static void parse_clear(const char *arg, const char *where, bool warn);
@@ -102,8 +102,6 @@ unsigned sorted_help_count = 0;
 /* Globals */
 const char     *programname;
 bool		supports_cmdline_host = true;
-char		full_model_name[13] = "IBM-";
-char	       *model_name = &full_model_name[4];
 AppRes          appres;
 bool		exiting = false;
 char	       *command_string = NULL;
@@ -378,50 +376,11 @@ parse_command_line(int argc, const char **argv, const char **cl_hostname)
 void
 model_init(void)
 {
-    int model_number;
-    int ovc, ovr;
+    /* Set up the model. */
+    int model_number = common_model_init();
 
-    /*
-     * Sort out model and color modes, based on the model number resource.
-     */
-    model_number = parse_model_number(appres.model);
-    if (model_number < 0) {
-	popup_an_error("Invalid model number: %s", appres.model);
-	model_number = 0;
-    }
-    if (!model_number) {
-	model_number = 4;
-    }
-    if (appres.interactive.mono) {
-	mode.m3279 = false;
-    }
-
-    if (!mode.extended) {
-	appres.oversize = NULL;
-    }
-
-    ovc = 0;
-    ovr = 0;
-    if (mode.extended && appres.oversize != NULL) {
-	if (product_auto_oversize() && !strcasecmp(appres.oversize, "auto")) {
-	    ovc = -1;
-	    ovr = -1;
-	} else {
-	    int x_ovc, x_ovr;
-	    char junk;
-
-	    if (sscanf(appres.oversize, "%dx%d%c", &x_ovc, &x_ovr,
-			&junk) == 2) {
-		ovc = x_ovc;
-		ovr = x_ovr;
-	    } else {
-		xs_warning("Invalid %s value '%s'", ResOversize,
-			appres.oversize);
-	    }
-	}
-    }
-    set_rows_cols(model_number, ovc, ovr);
-    net_set_default_termtype();
+    /* Initialize oversize. */
+    oversize_init(model_number);
 }
 
 static void
@@ -473,12 +432,10 @@ static void
 set_appres_defaults(void)
 {
     /* Set the defaults. */
-    mode.extended = true;
-    mode.m3279 = true;
     appres.debug_tracing = true;
     appres.conf_dir = NewString(LIBX3270DIR);
 
-    appres.model = NewString("3279-4-E");
+    appres.model = NewString("3279-4");
     appres.hostsfile = NULL;
     appres.port = NewString("23");
     /* Do this when we finally deprecate 'charset'. */
@@ -528,6 +485,7 @@ set_appres_defaults(void)
 #endif /*]*/
     appres.interactive.no_telnet_input_mode = NewString("line");
     appres.tls992 = true;
+    appres.extended_data_stream = true;
 
     /* Let the product set the ones it wants. */
     product_set_appres_defaults();
@@ -880,73 +838,6 @@ cmdline_help(bool as_action)
 }
 
 /*
- * Parse the model number.
- * Returns -1 (error), 0 (default), or the specified number.
- */
-static int
-parse_model_number(char *m)
-{
-    size_t sl;
-    int n;
-
-    sl = strlen(m);
-
-    /* An empty model number is no good. */
-    if (!sl) {
-	return 0;
-    }
-
-    if (sl > 1) {
-	/*
-	 * If it's longer than one character, it needs to start with
-	 * '327[89]', and it sets the m3279 resource.
-	 */
-	if (!strncmp(m, "3278", 4)) {
-	    mode.m3279 = false;
-	} else if (!strncmp(m, "3279", 4)) {
-	    mode.m3279 = true;
-	} else {
-	    return -1;
-	}
-	m += 4;
-	sl -= 4;
-
-	/* Check more syntax.  -E is allowed, but ignored. */
-	switch (m[0]) {
-	case '\0':
-	    /* Use default model number. */
-	    return 0;
-	case '-':
-	    /* Model number specified. */
-	    m++;
-	    sl--;
-	    break;
-	default:
-	    return -1;
-	}
-	switch (sl) {
-	case 1: /* n */
-	    break;
-	case 3:	/* n-E */
-	    if (strcasecmp(m + 1, "-E")) {
-		return -1;
-	    }
-	    break;
-	default:
-	    return -1;
-	}
-    }
-
-    /* Check the numeric model number. */
-    n = atoi(m);
-    if (n >= 2 && n <= 5) {
-	return n;
-    } else {
-	return -1;
-    }
-}
-
-/*
  * Parse '-xrm' options.
  * Understands only:
  *   {c,s,tcl}3270.<resourcename>: value
@@ -970,6 +861,7 @@ static res_t base_resources[] = {
     { ResDevName,	aoffset(devname),	XRM_STRING },
     { ResEof,		aoffset(linemode.eof),	XRM_STRING },
     { ResErase,		aoffset(linemode.erase),	XRM_STRING },
+    { ResExtendedDataStream, aoffset(extended_data_stream),	XRM_BOOLEAN },
     { ResFtAllocation,	aoffset(ft.allocation),	XRM_STRING },
     { ResFtAvblock,	aoffset(ft.avblock),	XRM_INT },
     { ResFtBlksize,	aoffset(ft.blksize),	XRM_INT },

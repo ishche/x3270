@@ -53,50 +53,52 @@ class TestC3270IbmHosts(cti.cti):
     # c3270 ibm_hosts case sensitivity test
     def test_c3270_ibm_hosts_ci(self):
 
+        playback_port, pts = cti.unused_port()
+
+        # Create an ibm_hosts file that points to playback.
+        (handle, hostsfile_name) = tempfile.mkstemp()
+        os.close(handle)
+        with open(hostsfile_name, 'w') as f:
+            f.write(f"fooey primary a:c:t:127.0.0.1:{playback_port}\n")
+
+        # Fork a child process with a PTY between this process and it.
+        c3270_port, cts = cti.unused_port()
+        (pid, fd) = pty.fork()
+        if pid == 0:
+            # Child process
+            cts.close()
+            env = os.environ.copy()
+            env['TERM'] = 'xterm-256color'
+            os.execvpe(cti.vgwrap_ecmd('c3270'),
+                cti.vgwrap_eargs(['c3270', '-model', '2',
+                    '-httpd', f'127.0.0.1:{c3270_port}',
+                    '-hostsfile', hostsfile_name]), env)
+            self.assertTrue(False, 'c3270 did not start')
+
+        # Parent process.
+
+        # Start a thread to drain c3270's output.
+        drain_thread = threading.Thread(target=self.drain, args=[fd])
+        drain_thread.start()
+
+        # Make sure c3270 started.
+        self.check_listen(c3270_port)
+        cts.close()
+
         # Start 'playback' to read c3270's output.
-        playback_port, ts = cti.unused_port()
-        with playback.playback(self, 's3270/Test/ibmlink.trc', port=playback_port) as p:
-            ts.close()
+        p = playback.playback(self, 's3270/Test/ibmlink.trc', port=playback_port)
+        pts.close()
 
-            # Create an ibm_hosts file that points to playback.
-            (handle, hostsfile_name) = tempfile.mkstemp()
-            os.close(handle)
-            with open(hostsfile_name, 'w') as f:
-                f.write(f"fooey primary a:c:t:127.0.0.1:{playback_port}\n")
-
-            # Fork a child process with a PTY between this process and it.
-            c3270_port, ts = cti.unused_port()
-            (pid, fd) = pty.fork()
-            if pid == 0:
-                # Child process
-                ts.close()
-                env = os.environ.copy()
-                env['TERM'] = 'xterm-256color'
-                os.execvpe(cti.vgwrap_ecmd('c3270'),
-                    cti.vgwrap_eargs(['c3270', '-model', '2',
-                        '-httpd', f'127.0.0.1:{c3270_port}',
-                        '-hostsfile', hostsfile_name,
-                        'fOOey']), env)
-                self.assertTrue(False, 'c3270 did not start')
-
-            # Parent process.
-
-            # Start a thread to drain c3270's output.
-            drain_thread = threading.Thread(target=self.drain, args=[fd])
-            drain_thread.start()
-
-            # Make sure c3270 started.
-            self.check_listen(c3270_port)
-            ts.close()
-
-            # Make sure c3270 is connected.
-            r = requests.get(f'http://127.0.0.1:{c3270_port}/3270/rest/json/Wait(2,inputField)')
-            self.assertTrue(r.ok)
-            cs = requests.get(f'http://127.0.0.1:{c3270_port}/3270/rest/json/Query(connectionState)').json()['result'][0]
-            self.assertEqual('connected-nvt', cs)
-            requests.get(f'http://127.0.0.1:{c3270_port}/3270/rest/json/Quit()')
+        # Make sure c3270 is connected.
+        os.write(fd, b'open fOOey\r')
+        r = requests.get(f'http://127.0.0.1:{c3270_port}/3270/rest/json/Wait(2,inputField)')
+        self.assertTrue(r.ok)
+        cs = requests.get(f'http://127.0.0.1:{c3270_port}/3270/rest/json/Query(connectionState)').json()['result'][0]
+        self.assertEqual('connected-nvt', cs)
+        requests.get(f'http://127.0.0.1:{c3270_port}/3270/rest/json/Quit()')
 
         # Wait for the processes to exit.
+        p.close()
         self.vgwait_pid(pid)
         os.close(fd)
         drain_thread.join()

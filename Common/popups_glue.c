@@ -38,58 +38,13 @@
 
 #include "glue.h"
 #include "glue_gui.h"
+#include "host.h"
 #include "popups.h" /* must come before child_popups.h */
 #include "child_popups.h"
 #include "screen.h"
 #include "task.h"
 #include "trace.h"
 #include "utils.h"
-
-const char *popup_separator = " ";
-
-/* Pop up an error dialog. */
-void
-popup_a_vxerror(pae_t type, const char *fmt, va_list args)
-{
-    char *s = Vasprintf(fmt, args);
-
-    if (type == ET_CONNECT) {
-	char *t = Asprintf("Connection failed:\n%s", s);
-
-	Replace(s, t);
-    }
-
-    /* Log to the trace file. */
-    vtrace("error: %s\n", s);
-
-    if (task_redirect()) {
-	task_error(s);
-    } else if (!glue_gui_error(type, s)) {
-	fprintf(stderr, "%s\n", s);
-	fflush(stderr);
-    }
-    Free(s);
-}
-
-void
-action_output(const char *fmt, ...)
-{
-    va_list args;
-    char *s;
-
-    va_start(args, fmt);
-    s = Vasprintf(fmt, args);
-    va_end(args);
-    if (task_redirect()) {
-	task_info("%s", s);
-    } else {
-	if (!glue_gui_output(s)) {
-	    fprintf(stderr, "%s\n", s);
-	    fflush(stderr);
-	}
-    }
-    Free(s);
-}
 
 void
 popup_printer_output(bool is_err _is_unused, abort_callback_t *a _is_unused,

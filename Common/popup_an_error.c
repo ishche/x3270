@@ -32,9 +32,14 @@
 
 #include "globals.h"
 
+#include "glue_gui.h"
+#include "host.h"
 #include "popups.h"
+#include "task.h"
+#include "trace.h"
 #include "txa.h"
 #include "utils.h"
+#include "varbuf.h"
 
 /**
  * Pop up an error message with a strerror appended.
@@ -89,4 +94,60 @@ popup_an_error(const char *fmt, ...)
     va_start(ap, fmt);
     popup_a_vxerror(ET_OTHER, fmt, ap);
     va_end(ap);
+}
+
+/**
+ * Pop up an error message, varags style.
+ */
+void
+popup_a_vxerror(pae_t type, const char *fmt, va_list ap)
+{
+    char *s = Vasprintf(fmt, ap);
+
+    trace_error(type, s);
+
+    if (task_redirect()) {
+        if (type == ET_CONNECT) {
+            char *t = Asprintf("Connection failed%s:\n%s", host_retry_mode? ", retrying": "", s);
+
+            task_error(t);
+            Free(t);
+        } else {
+            task_error(s);
+        }
+    } else if (!glue_gui_error(type, s)) {
+	fprintf(stderr, "%s%s%s%s\n",
+		(type == ET_CONNECT)? "Connection failed": "",
+		(type == ET_CONNECT && host_retry_mode)? ", retrying": "",
+		(type == ET_CONNECT)? ":\n": "",
+		s);
+    }
+    Free(s);
+}
+
+/**
+ * Trace an error.
+ *
+ * @param[in] type	Error type
+ * @param[in] message	Error message
+ */
+void
+trace_error(pae_t type, const char *message)
+{
+    varbuf_t r;
+    char c;
+    char *res;
+
+    vb_init(&r);
+    while ((c = *message++) != '\0') {
+	if (c == '\n') {
+	    vb_appends(&r, "\\n");
+	} else {
+	    vb_appendf(&r, "%c", c);
+	}
+    }
+
+    res = vb_consume(&r);
+    vtrace("Error: %s%s\n", (type == ET_CONNECT)? "Connection failed:\\n": "", res);
+    Free(res);
 }

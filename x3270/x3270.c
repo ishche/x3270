@@ -81,6 +81,7 @@
 #include "screen.h"
 #include "selectc.h"
 #include "sio.h"
+#include "sio_glue.h"
 #include "status.h"
 #include "task.h"
 #include "telnet.h"
@@ -116,8 +117,6 @@ Atom            a_delete_me, a_save_yourself, a_3270, a_registry, a_encoding,
 		a_state, a_net_wm_state, a_net_wm_state_maximized_horz,
 		a_net_wm_state_maximized_vert, a_net_wm_name, a_atom, a_spacing,
 		a_pixel_size, a_font;
-char		full_model_name[13] = "IBM-";
-char	       *model_name = &full_model_name[4];
 Pixmap          gray;
 XrmDatabase     rdb;
 AppRes		appres;
@@ -134,7 +133,6 @@ static bool  colormap_failure = false;
 #if defined(LOCAL_PROCESS) /*[*/
 static void	parse_local_process(int *argcp, char **argv, char **cmds);
 #endif /*]*/
-static int	parse_model_number(char *m);
 #if defined(DEBUG_SET_CLEAR) /*[*/
 static void	dump_argv(const char *, int, char **);
 #endif /*]*/
@@ -428,7 +426,7 @@ cleanup_Xt(bool b _is_unused)
 
 /* Duplicate string resources so they can be reallocated later. */
 static void
-dup_resource_strings(XtResourceList res, Cardinal num)
+dup_resource_strings(void *ap, XtResourceList res, Cardinal num)
 {
     Cardinal c;
 
@@ -439,7 +437,7 @@ dup_resource_strings(XtResourceList res, Cardinal num)
 	if (r->resource_type != XtRString) {
 	    continue;
 	}
-	value = (char **)(void *)((char *)(void *)&appres + r->resource_offset);
+	value = (char **)(void *)((char *)ap + r->resource_offset);
 	if (*value != NULL) {
 	    *value = NewString(*value);
 	}
@@ -455,12 +453,11 @@ main(int argc, char *argv[])
 #endif /*]*/
     Atom protocols[2];
     char *cl_hostname = NULL;
-    int	ovc, ovr;
-    char junk;
     int	model_number;
     bool mono = false;
     char *session = NULL;
     XtResource *res;
+    XtResource *xres;
 
     /*
      * Make sure the Xt and x3270 Boolean types line up.
@@ -537,6 +534,7 @@ main(int argc, char *argv[])
     screentrace_register();
     x3270_register();
     xio_register();
+    sio_glue_register();
     hio_register();
     proxy_register();
     model_register();
@@ -662,6 +660,8 @@ main(int argc, char *argv[])
      */
     res = (XtResource *)Malloc(num_resources * sizeof(XtResource));
     memcpy(res, resources, num_resources * sizeof(XtResource));
+    xres = (XtResource *)Malloc(num_xresources * sizeof(XtResource));
+    memcpy(xres, xresources, num_xresources * sizeof(XtResource));
 
     /* Fill in appres. */
     old_emh = XtAppSetWarningMsgHandler(appcontext,
@@ -687,7 +687,8 @@ main(int argc, char *argv[])
     }
 
     /* Duplicate the strings in appres, so they can be reallocated later. */
-    dup_resource_strings(res, num_resources);
+    dup_resource_strings((void *)&appres, res, num_resources);
+    dup_resource_strings((void *)&xappres, xres, num_xresources);
 
     /* Check the minimum version. */
     check_min_version(appres.min_version);
@@ -727,24 +728,13 @@ main(int argc, char *argv[])
     /*
      * Sort out model and color modes, based on the model number resource.
      */
-    model_number = parse_model_number(appres.model);
-    if (model_number < 0) {
-	popup_an_error("Invalid model number: %s", appres.model);
-	model_number = 0;
-    }
-    if (!model_number) {
-	model_number = 4;
-    }
     if (screen_depth <= 1 || colormap_failure) {
 	appres.interactive.mono = true;
-    }
-    if (appres.interactive.mono) {
 	xappres.use_cursor_color = False;
-	mode.m3279 = false;
     }
-    if (!mode.extended) {
-	appres.oversize = NULL;
-    }
+    model_number = common_model_init();
+
+    /* Do a bit of security init. */
     if (appres.secure) {
 	appres.disconnect_clear = true;
     }
@@ -826,13 +816,8 @@ main(int argc, char *argv[])
     /* Set up the window and icon labels. */
     label_init();
 
-    if (!mode.extended || appres.oversize == NULL ||
-	sscanf(appres.oversize, "%dx%d%c", &ovc, &ovr, &junk) != 2) {
-	ovc = 0;
-	ovr = 0;
-    }
-    set_rows_cols(model_number, ovc, ovr);
-    net_set_default_termtype();
+    /* Set up oversize. */
+    oversize_init(model_number);
 
     /* Initialize the icon. */
     icon_init();
@@ -922,74 +907,6 @@ sigchld_handler(int ignored)
 #if !defined(_AIX) /*[*/
     signal(SIGCHLD, sigchld_handler);
 #endif /*]*/
-}
-
-/*
- * Parse the model number.
- * Returns -1 (error), 0 (default), or the specified number.
- */
-static int
-parse_model_number(char *m)
-{
-    int sl;
-    int n;
-
-    sl = strlen(m);
-
-    /* An empty model number is no good. */
-    if (!sl) {
-	return 0;
-    }
-
-    if (sl > 1) {
-	/*
-	 * If it's longer than one character, it needs to start with
-	 * '327[89]', and it sets the m3279 resource.
-	 */
-	if (!strncmp(m, "3278", 4)) {
-	    mode.m3279 = false;
-	} else if (!strncmp(m, "3279", 4)) {
-	    mode.m3279 = true;
-	} else {
-	    return -1;
-	}
-	m += 4;
-	sl -= 4;
-
-	/* Check more syntax.  -E is allowed, but ignored. */
-	switch (m[0]) {
-	case '\0':
-	    /* Use default model number. */
-	    return 0;
-	case '-':
-	    /* Model number specified. */
-	    m++;
-	    sl--;
-	    break;
-	default:
-	    return -1;
-	}
-	switch (sl) {
-	case 1: /* n */
-	    break;
-	case 3:	/* n-E */
-	    if (strcasecmp(m + 1, "-E")) {
-		return -1;
-	    }
-	    break;
-	default:
-	    return -1;
-	}
-    }
-
-    /* Check the numeric model number. */
-    n = atoi(m);
-    if (n >= 2 && n <= 5) {
-	return n;
-    } else {
-	return -1;
-    }
-
 }
 
 /* Change the window and icon labels. */
@@ -1302,6 +1219,7 @@ copy_xres_to_res_bool(void)
     copy_bool(contention_resolution);
     copy_bool(debug_tracing);
     copy_bool(disconnect_clear);
+    copy_bool(extended_data_stream);
     copy_bool(highlight_bold);
     copy_bool(idle_command_enabled);
     copy_bool(modified_sel);
@@ -1406,17 +1324,38 @@ poll_children(void)
 }
 
 /* Glue for redundant functions normally supplied by glue.c. */
+
+typedef struct dummy_reg {
+   struct dummy_reg *next;
+   void *value;
+} dummy_reg_t;
+static dummy_reg_t *dummy_reg;
+
+/* Put a little piece of allocated memory somewhere Valgrind can find it. */
+static void
+valkeep(void *p)
+{
+    dummy_reg_t *d = Malloc(sizeof(dummy_reg_t));
+
+    d->next = dummy_reg;
+    d->value = p;
+    dummy_reg = d;
+}
+
 void
 register_opts(opt_t *opts, unsigned num_opts)
 {
+    valkeep((void *)opts);
 }
 
 void
 register_resources(res_t *res, unsigned num_res)
 {
+    valkeep((void *)res);
 }
 
 void
 register_xresources(xres_t *res, unsigned num_xres)
 {
+    valkeep((void *)res);
 }

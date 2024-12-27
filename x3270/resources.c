@@ -61,7 +61,7 @@ XtResource resources[] = {
     { ResConfDir, ClsConfDir, XtRString, sizeof(char *),
       offset(conf_dir), XtRString, LIBX3270DIR },
     { ResModel, ClsModel, XtRString, sizeof(char *),
-      offset(model), XtRString, "3279-4-E" },
+      offset(model), XtRString, "3279-4" },
     { ResKeymap, ClsKeymap, XtRString, sizeof(char *),
       offset(interactive.key_map), XtRString, 0 },
     { ResComposeMap, ClsComposeMap, XtRString, sizeof(char *),
@@ -168,6 +168,8 @@ XtResource resources[] = {
       offset(tls.max_protocol), XtRString, 0 },
     { ResTlsMinProtocol, ClsTlsMinProtocol, XtRString, sizeof(char *),
       offset(tls.min_protocol), XtRString, 0 },
+    { ResTlsSecurityLevel, ClsTlsSecurityLevel, XtRString, sizeof(char *),
+      offset(tls.security_level), XtRString, 0 },
 
     { ResFtAllocation, ClsFtAllocation, XtRString, sizeof(char *),
       offset(ft.allocation), XtRString, 0 },
@@ -359,6 +361,8 @@ XtResource xresources[] = {
       boffset(tls992), XtRString, ResTrue },
     { ResUtEnv, ClsUtEnv, XtRBoolean, sizeof(Boolean),
       boffset(ut_env), XtRString, ResTrue },
+    { ResExtendedDataStream, ClsExtendedDataStream, XtRBoolean, sizeof(Boolean),
+      boffset(extended_data_stream), XtRString, ResTrue },
 
     { ResMonoCase, ClsMonoCase, XtRBoolean, sizeof(Boolean),
       btoffset(MONOCASE), XtRString, ResFalse },

@@ -36,10 +36,13 @@ class pipeq():
 
     pipe = None
     queue = None
+    limit = -1
+    count = 0
 
     # Initialization.
-    def __init__(self, cti: cti, pipe):
+    def __init__(self, cti: cti, pipe, limit=-1):
         self.pipe = pipe
+        self.limit = limit
         self.cti = cti
         self.queue = queue.Queue()
         self.thread = threading.Thread(target=self.shuttle)
@@ -55,6 +58,10 @@ class pipeq():
             if len(rdata) == 0:
                 return
             self.queue.put(rdata.strip())
+            if self.limit > 0:
+                self.count += 1
+                if self.count >= self.limit:
+                    break
 
     def get(self, timeout=2, error='Pipe read timed out'):
         '''Timed read'''

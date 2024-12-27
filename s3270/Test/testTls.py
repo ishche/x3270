@@ -189,7 +189,7 @@ class TestS3270Tls(cti.cti):
 
         r = requests.get(f'http://127.0.0.1:{http_port}/3270/rest/json/Open(l:a:c:t:127.0.0.1:123=TEST)')
         self.assertEqual(r.status_code, 400, 'Expected HTTP 400 failure')
-        self.assertTrue('Invalid maximum protocol' in r.json()['result'][0])
+        self.assertTrue(any(['Invalid maximum protocol' in x for x in r.json()['result']]))
 
         requests.get(f'http://127.0.0.1:{http_port}/3270/rest/json/Quit(-force)')
 
@@ -212,7 +212,7 @@ class TestS3270Tls(cti.cti):
 
         r = requests.get(f'http://127.0.0.1:{http_port}/3270/rest/json/Open(l:a:c:t:127.0.0.1:123=TEST)')
         self.assertEqual(r.status_code, 400, 'Expected HTTP 400 failure')
-        self.assertTrue('Minimum protocol > maximum protocol' in r.json()['result'][0])
+        self.assertTrue(any(['Minimum protocol > maximum protocol' in x for x in r.json()['result']]))
 
         requests.get(f'http://127.0.0.1:{http_port}/3270/rest/json/Quit(-force)')
 
@@ -390,6 +390,71 @@ class TestS3270Tls(cti.cti):
 
         # Wait for the process to exit.
         s3270.stdin.close()
+        self.vgwait(s3270)
+
+    # s3270 TLS security level test
+    def test_s3270_tls_security_level(self):
+
+        # Start a server to read s3270's output.
+        server_port, server_ts = cti.unused_port()
+        with tls_server.tls_server('Common/Test/tls/TEST.crt', 'Common/Test/tls/TEST.key', self, None, server_port) as server:
+            server_ts.close()
+
+            # Start s3270.
+            http_port, http_ts = cti.unused_port()
+            args = ['s3270', '-httpd', f':{http_port}' ]
+            if sys.platform != 'darwin' and not sys.platform.startswith('win'):
+                args += [ '-cafile', 'Common/Test/tls/myCA.pem' ]
+            s3270 = Popen(cti.vgwrap(args), stdin=DEVNULL, stdout=DEVNULL, stderr=DEVNULL)
+            self.children.append(s3270)
+            self.check_listen(http_port)
+            http_ts.close()
+
+            wanted_level = 1
+            r = requests.get(f'http://127.0.0.1:{http_port}/3270/rest/json/Set(tlsSecurityLevel,{wanted_level})')
+            self.assertEqual(r.status_code, 200, 'Expected HTTP success for Set(tlsSecurityLevel)')
+            x = threading.Thread(target=self.do_wrap, args=[server])
+            x.start()
+            r = requests.get(f'http://127.0.0.1:{http_port}/3270/rest/json/Open(l:a:c:t:127.0.0.1:{server_port}=TEST)')
+            self.assertEqual(r.status_code, 200, 'Expected HTTP success for Open()')
+
+            r = requests.get(f'http://127.0.0.1:{http_port}/3270/rest/json/Show(tlsSessionInfo)')
+            self.assertEqual(r.status_code, 200, 'Expected HTTP success for Get()')
+            level = int([line for line in r.json()['result'] if line.startswith('Security level')][0].split(':')[1])
+            self.assertEqual(wanted_level, level)
+
+            requests.get(f'http://127.0.0.1:{http_port}/3270/rest/json/Quit(-force)')
+            x.join(timeout=2)
+
+        # Wait for the process to exit.
+        self.vgwait(s3270)
+
+    # s3270 TLS security level test failure
+    def test_s3270_tls_security_level_fail(self):
+
+        # Start a server to read s3270's output.
+        server_port, server_ts = cti.unused_port()
+        server_ts.close()
+
+        # Start s3270.
+        http_port, http_ts = cti.unused_port()
+        args = ['s3270', '-httpd', f':{http_port}' ]
+        if sys.platform != 'darwin' and not sys.platform.startswith('win'):
+            args += [ '-cafile', 'Common/Test/tls/myCA.pem' ]
+        s3270 = Popen(cti.vgwrap(args), stdin=DEVNULL, stdout=DEVNULL, stderr=DEVNULL)
+        self.children.append(s3270)
+        self.check_listen(http_port)
+        http_ts.close()
+
+        r = requests.get(f'http://127.0.0.1:{http_port}/3270/rest/json/Set(tlsSecurityLevel,fred)')
+        self.assertEqual(r.status_code, 200, 'Expected HTTP success for Set(tlsSecurityLevel)')
+        r = requests.get(f'http://127.0.0.1:{http_port}/3270/rest/json/Open(l:a:c:t:127.0.0.1:{server_port}=TEST)')
+        self.assertFalse(r.ok, 'Expected HTTP failure for Open()')
+        self.assertTrue(any(['Invalid tlsSecurityLevel' in x for x in r.json()['result']]))
+
+        requests.get(f'http://127.0.0.1:{http_port}/3270/rest/json/Quit(-force)')
+
+        # Wait for the process to exit.
         self.vgwait(s3270)
 
 if __name__ == '__main__':
